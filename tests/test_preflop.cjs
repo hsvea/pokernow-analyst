@@ -36,3 +36,11 @@ test('ambiguous and duplicate seats fail closed',()=>{
  const p=[{seat:1,dealer:true},{seat:1}];assert.equal(pf.inferPosition(p,p[0]),null);
  p[1].seat=2;p[1].dealer=true;assert.equal(pf.inferPosition(p,p[0]),null);
 });
+
+test('unraised table identifies BB by seat without status labels',()=>{
+ const p=[{seat:1,dealer:true,bet:0},{seat:3,bet:1},{seat:7,bet:2},{seat:9,bet:0}];
+ assert.deepEqual(pf.unraisedSituation(p,p[3],2),{scenario:'unopened',limpers:0});
+ p[0].bet=2;assert.deepEqual(pf.unraisedSituation(p,p[3],2),{scenario:'limped',limpers:1});
+ p[0].bet=6;assert.equal(pf.unraisedSituation(p,p[3],2),null);
+ p[0].bet=0;p[2].bet=0;assert.equal(pf.unraisedSituation(p,p[3],2),null);
+});

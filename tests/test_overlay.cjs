@@ -40,7 +40,7 @@ test('overlay renders preflop advice and stable-ID profile on a fixture table',a
     assert.match(root.getElementById('profileDetail').textContent,/careful/);
     assert.match(root.getElementById('seats').textContent,/Малая выборка/);
     input('pfScenario','');
-    assert.match(root.getElementById('preflopAdvice').textContent,/историю повышений/);
+    assert.match(root.getElementById('preflopAdvice').textContent,/число повышений неизвестно/);
     root.getElementById('playersTab').click();root.getElementById('statsSource').value='complete';root.getElementById('statsSource').dispatchEvent(new w.Event('change'));
     assert.match(root.getElementById('activeStatsBody').textContent,/30%/);
     w.chrome.runtime.sendMessage=()=>{}; // Simulate an app that stopped answering.
@@ -204,5 +204,22 @@ test('visible table action is sent without LOG and appears in live statistics',(
  assert.match(el('captureStatus').textContent,/работает без LOG/);
  el('playersTab').click();assert.equal(el('statsSource').value,'live');assert.match(el('statsBasis').textContent,/частичные/);
  assert.equal(el('activeStatsBody').children[0].children[3].textContent,'1');
+ }finally{dom.window.close();}
+});
+
+test('ordinary preflop without LOG or big-blind text produces advice and compact percentages',()=>{
+ const {dom,w,el,tick}=fixture();try{
+ w.document.querySelector('.table-player-2 .table-player-status-message').textContent='';
+ w.document.body.insertAdjacentHTML('beforeend','<div class="blind-value">1 / 2</div>');tick();
+ assert.match(el('situation').textContent,/До тебя: Без рейза/);
+ assert.match(el('decisionAction').textContent,/RAISE/);
+ assert.match(el('equitySummary').textContent,/Equity:/);
+ assert.equal(el('equitySummary').closest('#analytics'),null);
+ w.document.querySelector('.table-player-1 .bet-value').textContent='2';tick();
+ assert.match(el('situation').textContent,/До тебя: Лимперы/);
+ assert.match(el('situation').textContent,/Лимперов: 1/);
+ assert.match(el('decisionAction').textContent,/RAISE/);
+ w.document.querySelector('.table-player-1 .bet-value').textContent='6';tick();
+ assert.match(el('decisionReason').textContent,/число повышений неизвестно/);
  }finally{dom.window.close();}
 });

@@ -34,6 +34,16 @@
     if (middle) return (h.pair&&h.hi>=6)||(h.hi===14&&(h.suited?h.lo>=10:h.lo>=11))||(h.suited&&h.hi>=12&&h.lo>=11)||(h.hi===13&&h.lo===12);
     return (h.pair&&h.hi>=7)||(h.hi===14&&(h.suited?h.lo>=11:h.lo>=12))||(h.suited&&h.hi===13&&h.lo===12);
   }
+  function unraisedSituation(players, hero, bb) {
+    if(!hero || !Number.isFinite(bb) || bb<=0)return null;
+    const seated=players.filter(p=>!p.waitingNextHand);
+    const blind=seated.find(p=>inferPosition(seated,p)==='BB');
+    if(!blind || Math.abs(blind.bet-bb)>.001 || seated.some(p=>!Number.isFinite(p.bet)||p.bet<0||p.bet>bb+.001))return null;
+    // The BB is identified by seat, not by an optional "big blind" status label.
+    // A non-blind contribution of one BB is a limp in an unraised preflop pot.
+    const limpers=seated.filter(p=>p!==hero&&p!==blind&&!p.folded&&Math.abs(p.bet-bb)<.001).length;
+    return {scenario:limpers?'limped':'unopened',limpers};
+  }
   function recommend(input) {
     const h=hand(input.cards), n=Number(input.players), bb=Number(input.bb), stack=Number(input.stack), own=Number(input.heroBet||0), facing=Number(input.totalBet||0);
     const pos=input.position, scenario=input.scenario;
@@ -73,7 +83,7 @@
     return {hand:h.label, action, target, call, stackBB:depth, reason,
       caveat:'Эвристика, не GTO и не гарантия выигрыша. Не учитывает рейк, анте и точные диапазоны соперников.'};
   }
-  const api={hand,positions,inferPosition,recommend};
+  const api={hand,positions,inferPosition,unraisedSituation,recommend};
   if(typeof module!=='undefined'&&module.exports) module.exports=api;
   else root.PokerNowPreflop=api;
 })(globalThis);

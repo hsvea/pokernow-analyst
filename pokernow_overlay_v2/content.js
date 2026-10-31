@@ -37,7 +37,7 @@
   let scale = Math.max(.8, Math.min(1.2, Number(settings.scale) || 1));
   let compact = settings.compact !== false;
   let activeView = settings.activeView==='players'?'players':'hand';
-  const overlayVersion='15.0.0'; // Version of this loaded script, even after an extension update.
+  const overlayVersion='15.0.1'; // Version of this loaded script, even after an extension update.
   const handCollector=globalThis.PokerNowHistory.collector();
   const tableRecorder=globalThis.PokerNowTableCapture.recorder(Date.now().toString(36)+'-'+Math.random().toString(36).slice(2));
   let captureResult=null;
@@ -261,6 +261,8 @@
           <div class="muted">* Остаток эффективного стека. Историю рейзов нельзя надёжно восстановить по одной сумме: при повышении выбери её вручную. Проверяй BB и позицию. Эвристика, не GTO.</div>
         </details>
       </section>
+      <div id="equitySummary" class="small" role="status"></div>
+      <div class="small subtle">Equity — доля банка против случайных рук, не точный шанс против диапазона соперника. Порог колла — цена колла / итоговый банк.</div>
       <div id="viewControls"><button id="compactToggle">Подробнее</button><label for="scaleSelect">Масштаб</label><select id="scaleSelect"><option value="0.8">80%</option><option value="1">100%</option><option value="1.2">120%</option></select><button id="positionReset" title="Вернуть панель в окно">↺</button></div>
       <div id="profileDetail" hidden></div>
       <div id="analytics">
@@ -499,6 +501,7 @@
     const p=v.pot, c=v.call;
     const validPot=Number.isFinite(p)&&p>=0, validCall=Number.isFinite(c)&&c>=0;
     const odds=validPot&&validCall&&p+c>0 ? c/(p+c):null;
+    setText('equitySummary',v.paused?'Equity: — · '+v.paused:v.duplicateCards||v.hole.length!==2?'Equity: — · нужны две корректные карты':'Equity: '+(lastEquity===null?'считаю…':(lastEquity*100).toFixed(1)+'%')+' · '+(c===0?'чек без доплаты':'порог колла: '+(odds===null?'—':(odds*100).toFixed(1)+'%')));
     setText('odds',odds===null?'—':(odds*100).toFixed(1)+'%');
     let ev=null;
     if(lastEquity!==null&&odds!==null){ev=lastEquity*(p+c)-c;setText('ev',(ev>=0?'+':'')+money(ev));}
@@ -677,11 +680,7 @@
     const bigBlind=v.players.find(p=>/big blind/i.test(p.status)||pf.inferPosition(v.players,p)==='BB');
     const limpers=value('pfLimpers',history?.limpers??(bigBlind&&bb?v.players.filter(p=>!p.isMe&&!p.folded&&p!==bigBlind&&p.bet===bb).length:null));
     let scenario=el('pfScenario').value||history?.scenario;
-    if(!scenario && !v.logSource?.rows.length && bb && facing<=bb){
-      const calls=v.players.filter(p=>!p.isMe&&!p.folded&&/\bcall\b/i.test(p.status));
-      const unknown=v.players.some(p=>!p.isMe&&!p.folded&&p.bet===bb&&!/big blind|\bcall\b/i.test(p.status));
-      if(!unknown)scenario=calls.length?'limped':'unopened';
-    }
+    if(!scenario && !v.logSource?.rows.length && bb && facing<=bb)scenario=pf.unraisedSituation(v.players,hero,bb)?.scenario;
     const labels={unopened:'Без рейза',limped:'Лимперы',raise:'Рейз','3bet':'3-бет','4bet':'4-бет'};
     const facts=[['BB',bb,'pfBB'],['Позиция',position,'pfPosition'],['Игроков',count,'pfPlayers'],['Эфф. остаток',stack,'pfStack'],['Ставка до',facing,'pfFacing'],['Уже внесено',own,'pfOwn'],['До тебя',labels[scenario]||null,'pfScenario'],['Лимперов',history?limpers:scenario==='unopened'?0:scenario==='limped'?limpers:null,'pfLimpers']];
     const container=el('situation');container.replaceChildren();
@@ -701,6 +700,7 @@
       if(!bb || bb<=0)throw new Error('Укажи BB в параметрах префлопа');
       if(scenario==='limped' && limpers===null)throw new Error('Укажи число лимперов');
       if(stack==null)throw new Error('Укажи эффективный остаток стека');
+      if(!scenario)throw new Error(facing>bb?'Виден рейз, но число повышений неизвестно. Выбери «Рейз / 3-бет / 4-бет» в параметрах или открой LOG.':'Не удалось подтвердить блайнды и предыдущие действия. Проверь позицию BB и ставки.');
       const r=pf.recommend({cards:v.hole,players:count,position,bb,stack,totalBet:facing,heroBet:own,scenario,limpers:scenario==='limped'?limpers:0,minRaiseTo:history && ['pfBB','pfFacing','pfScenario','pfOwn'].every(id=>el(id).value==='')?history.minRaiseTo:undefined});
       setText('decisionAction',r.action+(r.target!==null?' до '+money(r.target):r.action==='CALL'?' '+money(r.call):''));
       setText('decisionReason',r.reason);
