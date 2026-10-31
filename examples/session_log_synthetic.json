@@ -1,0 +1,52 @@
+{
+  "provenance": "Synthetic identities and amounts; event wording and DOM structure based on the visible PokerNow Session Log inspected on 2026-10-31. No original player data retained.",
+  "rows": [
+    {
+      "text": "-- starting hand #200 (id: sample200) Pot Limit Omaha 5 Hi (dead button) --"
+    },
+    {
+      "text": "Player stacks: #1 Player A (592) | #2 Player B (348) | #8 Player C (1837) | #10 Player D (547)"
+    },
+    {
+      "text": "Player C posts a small blind of 1",
+      "actorId": "exampleC"
+    },
+    {
+      "text": "Player D posts a big blind of 2",
+      "actorId": "exampleD"
+    },
+    {
+      "text": "Player A raises to 7",
+      "actorId": "exampleA"
+    },
+    {
+      "text": "Player B folds",
+      "actorId": "exampleB"
+    },
+    {
+      "text": "The player New Player requested a seat."
+    },
+    {
+      "text": "The admin approved the player New Player participation with a stack of 50."
+    },
+    {
+      "text": "Player C raises to 30",
+      "actorId": "exampleC"
+    },
+    {
+      "text": "Player D folds",
+      "actorId": "exampleD"
+    },
+    {
+      "text": "Player A calls 30",
+      "actorId": "exampleA"
+    },
+    {
+      "text": "Flop: [A♣, 3♥, 6♣]"
+    },
+    {
+      "text": "Player C checks",
+      "actorId": "exampleC"
+    }
+  ]
+}

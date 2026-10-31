@@ -21,14 +21,14 @@ test('bridge reloads only a matching on-disk version once and rejects foreign ta
 });
 test('overlay renders preflop advice and stable-ID profile on a fixture table',async()=>{
   const players=Array.from({length:6},(_,i)=>`<div class="table-player table-player-${i} ${i===2?'you-player':''}"><a href="/players/id${i}">${i===0?'Renamed':'Player '+i}</a><div class="table-player-stack">200</div><div class="table-player-status-message">${i===5?'big blind':''}</div><span class="bet-value">${i===5?'2':'0'}</span>${i===3?'<span class="dealer-button"></span>':''}${i===2?'<div class="card-container"><span class="value">A</span><span class="suit">s</span></div><div class="card-container"><span class="value">A</span><span class="suit">h</span></div>':''}</div>`).join('');
-  const dom=new JSDOM('<body><div class="table-cards"></div>'+players+'</body>',{url:'https://www.pokernow.com/games/fixture',runScripts:'outside-only',pretendToBeVisual:true});
+  const dom=new JSDOM('<body><div class="game-type-ctn"><span class="current-type">NLH</span></div><div class="table-cards"></div>'+players+'</body>',{url:'https://www.pokernow.com/games/fixture',runScripts:'outside-only',pretendToBeVisual:true});
   try {
     const w=dom.window;
     const original=w.Element.prototype.attachShadow;
     w.Element.prototype.attachShadow=function(){return original.call(this,{mode:'open'});};
     w.chrome={storage:{local:{get:(_,cb)=>w.queueMicrotask(()=>cb({pairingCode:'a'.repeat(24),bridgeEnabled:true})),set:()=>{}}},runtime:{lastError:null,sendMessage:(_,cb)=>w.queueMicrotask(()=>cb({ok:true,version:'11.0.0',profiles:{'p:id0':{hands:20,vpip:30,pfr:15,aliases:['Old Name','Renamed'],note:'careful'}}}))}};
     w.eval(src('preflop.js'));
-    w.eval(src('content.js'));
+    w.eval(src('history.js'));w.eval(src('content.js'));
     await new Promise(r=>setTimeout(r,25));
     const root=w.document.getElementById('pnow-rta-extension-root').shadowRoot;
     const input=(id,value)=>{const e=root.getElementById(id);e.value=value;e.dispatchEvent(new w.Event('input'));};
@@ -44,11 +44,11 @@ test('overlay renders preflop advice and stable-ID profile on a fixture table',a
   } finally {dom.window.close();}
 });
 const fixture=()=>{
-  const dom=new JSDOM(`<body><div class="table-container" data-hand-id="1"><div class="table-cards"></div>${Array.from({length:3},(_,i)=>`<div class="table-player table-player-${i} ${i===0?'you-player':''}"><a href="/players/id${i}">Player ${i}</a><div class="table-player-stack">200</div><div class="table-player-status-message">${i===2?'big blind':''}</div><span class="bet-value">${i===2?'2':'0'}</span>${i===0?'<span class="dealer-button"></span><div class="card-container"><span class="value">A</span><span class="suit">s</span></div><div class="card-container"><span class="value">A</span><span class="suit">h</span></div>':''}</div>`).join('')}</div></body>`,{url:'https://www.pokernow.com/games/fixture',runScripts:'outside-only',pretendToBeVisual:true});
+  const dom=new JSDOM(`<body><div class="game-type-ctn"><span class="current-type">NLH</span></div><div class="table-container" data-hand-id="1"><div class="table-cards"></div>${Array.from({length:3},(_,i)=>`<div class="table-player table-player-${i} ${i===0?'you-player':''}"><a href="/players/id${i}">Player ${i}</a><div class="table-player-stack">200</div><div class="table-player-status-message">${i===2?'big blind':''}</div><span class="bet-value">${i===2?'2':'0'}</span>${i===0?'<span class="dealer-button"></span><div class="card-container"><span class="value">A</span><span class="suit">s</span></div><div class="card-container"><span class="value">A</span><span class="suit">h</span></div>':''}</div>`).join('')}</div></body>`,{url:'https://www.pokernow.com/games/fixture',runScripts:'outside-only',pretendToBeVisual:true});
   const w=dom.window, original=w.Element.prototype.attachShadow;
   w.Element.prototype.attachShadow=function(){return original.call(this,{mode:'open'});};
   w.chrome={storage:{local:{get:(_,cb)=>cb({}),set:()=>{}}},runtime:{lastError:null,sendMessage:()=>{}}};
-  w.eval(src('preflop.js'));w.eval(src('content.js'));
+  w.eval(src('preflop.js'));w.eval(src('history.js'));w.eval(src('content.js'));
   const root=w.document.getElementById('pnow-rta-extension-root').shadowRoot;
   const el=id=>root.getElementById(id);
   const input=(id,value)=>{el(id).value=value;el(id).dispatchEvent(new w.Event('input'));};
@@ -95,5 +95,33 @@ test('board reset and table change invalidate previous manual situation',()=>{
  w.document.querySelector('.table-cards').innerHTML='<div class="card-container"><span class="value">K</span><span class="suit">c</span></div>';tick();input('holeInput','Kd Kh');
  w.document.querySelector('.table-cards').innerHTML='';tick();assert.equal(el('holeInput').value,'');
  input('pfBB','8');w.history.pushState({},'', '/games/another');tick();assert.equal(el('pfBB').value,'');assert.match(el('freshness').textContent,/Другой стол/);
+ }finally{dom.window.close();}
+});
+test('live-log adapter supplies raise scenario only for a matched current hand',()=>{
+ const {dom,w,el,tick}=fixture();try{
+ w.document.querySelector('.table-container').setAttribute('data-hand-id','demo');
+ w.document.querySelector('.table-player-1 .bet-value').textContent='1';
+ w.document.querySelector('.table-player-2 .bet-value').textContent='6';
+ w.document.querySelector('.table-player-2 .table-player-status-message').textContent='raise';
+ const area=w.document.createElement('div');area.className='action-buttons';area.innerHTML='Your turn <button>Call 6</button>';w.document.body.append(area);
+ const rows=[['-- starting hand #1 (id: demo) No Limit Texas Hold’em --',''],['Player 1 posts a small blind of 1','id1'],['Player 2 posts a big blind of 2','id2'],['Player 2 raises to 6','id2']];
+ const log=w.document.createElement('div');log.className='log-modal';
+ log.innerHTML='<div class="log-modal-entries">'+rows.reverse().map(([text,id])=>'<div class="entry-ctn"><p class="content">'+(id?'<abbr title="Player ID: '+id+'">'+text.split(' ').slice(0,2).join(' ')+'</abbr>'+text.slice(8):text)+'</p></div>').join('')+'</div><div class="log-modal-controls"></div>';
+ w.document.body.append(log);tick();
+ assert.match(el('historyStatus').textContent,/сверены/);
+ assert.match(el('decisionAction').textContent,/3-BET до 18/);
+ assert.equal(el('pfScenario').value,'');assert.match(el('situation').textContent,/из журнала/);
+ log.querySelector('.log-modal-controls').innerHTML='<button class="pagination-button">« Hand #2</button>';tick();
+ assert.match(el('historyStatus').textContent,/архивная/);assert.equal(el('decisionAction').textContent,'Нужно уточнить');
+ }finally{dom.window.close();}
+});
+test('PLO5 is explicitly unsupported and five hero cards are never truncated to Holdem',()=>{
+ const {dom,w,el,tick}=fixture();try{
+ w.document.querySelector('.current-type').textContent='PLO5';
+ w.document.querySelector('.you-player').insertAdjacentHTML('beforeend','<div class="card-container"><span class="value">K</span><span class="suit">d</span></div><div class="card-container"><span class="value">Q</span><span class="suit">h</span></div><div class="card-container"><span class="value">J</span><span class="suit">c</span></div>');tick();
+ assert.match(el('decisionReason').textContent,/PLO5/);assert.equal(el('equity').textContent,'—');
+ el('diagnosticPrepare').click();const diagnostic=JSON.parse(el('diagnosticPreview').value);
+ assert.equal(diagnostic.holeCount,5);assert.equal(diagnostic.variant,'PLO5');assert.equal(diagnostic.players[0].name,'Player 1');
+ assert.equal(el('diagnosticSave').hidden,false);
  }finally{dom.window.close();}
 });

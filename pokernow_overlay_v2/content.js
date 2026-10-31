@@ -31,6 +31,7 @@
   let handNotice = '';
   let selectedPlayer = null;
   let bridgeEpoch = 0;
+  let diagnosticPreview = null;
   let lastBridgeOK = 0;
   let bridgeMessage = 'Передача выключена';
   let scale = Math.max(.8, Math.min(1.2, Number(settings.scale) || 1));
@@ -118,7 +119,9 @@
     const players = readPlayers();
     const hero = players.find(x=>x.isMe) || null;
     const board = readCards($('.table-cards')).slice(0,5);
-    const hole = hero?.cards?.slice(0,2) || [];
+    const hole = hero?.cards || [];
+    const variant=getText($('.game-type-ctn .current-type'));
+    const holdem=/^(NLH|NLHE|No Limit (?:Texas )?Hold.?em)$/i.test(variant);
     const actions = readCall();
     const blindPoster=players.find(p=>/big blind/i.test(p.status)&&p.bet>0);
     observedBB=null;
@@ -132,7 +135,7 @@
     const duplicateCards = new Set([...hole,...board]).size !== [...hole,...board].length;
     const handId=getText($('.hand-number, .current-hand-number')) || $('.table-container[data-hand-id]')?.getAttribute('data-hand-id') || '';
     const dealer=players.find(p=>p.dealer);
-    return {players,hero,hole,board,pot,opponents,...actions,hand,duplicateCards,bb:observedBB,
+    return {players,hero,hole,board,pot,opponents,...actions,hand,duplicateCards,bb:observedBB,variant,holdem,
       table:location.pathname,handId,dealerKey:dealer?(dealer.profileId||dealer.name):'',
       street: board.length===0?'PREFLOP':board.length===3?'FLOP':board.length===4?'TURN':board.length===5?'RIVER':'РАЗДАЧА'};
   }
@@ -212,6 +215,12 @@
       <div id="connection" role="status">Windows · передача выключена</div>
       <div id="freshness"></div>
       <div class="strip" id="cards"></div>
+      <details id="historySection"><summary id="historyToggle">История действий · префлоп</summary>
+        <div id="historyStatus" class="muted" style="margin:8px 0">Открой LOG / LEDGER</div>
+        <div id="historySummary" class="small"></div>
+        <ol id="historyEvents" class="small" style="padding-left:20px;max-height:180px;overflow:auto"></ol>
+        <div class="muted">Читается только открытый Session Log. Архивная раздача и неполные данные не используются для автоподсказки.</div>
+      </details>
       <section id="preflopPanel">
         <div class="decision" id="preflopAdvice" aria-live="polite">
           <div id="decisionContext">PREFLOP</div><strong id="decisionAction">Ожидание карт</strong>
@@ -261,6 +270,12 @@
         <label class="row"><span>Передавать данные</span><input id="bridgeEnable" type="checkbox" style="width:auto" /></label>
         <div id="bridgeStatus" class="small subtle">Не подключено</div>
       </details>
+      <details id="diagnosticSection"><summary>Ошибка распознавания</summary>
+        <p class="muted">Подготовить обезличенный снимок. Ники, ID, URL стола, карты, заметки и код сопряжения исключены. Ничего не отправляется автоматически.</p>
+        <button id="diagnosticPrepare">Предпросмотр диагностики</button>
+        <textarea id="diagnosticPreview" readonly rows="7" hidden aria-label="Предпросмотр диагностики"></textarea>
+        <button id="diagnosticSave" hidden>Сохранить этот JSON</button>
+      </details>
       <details><summary>Заметки за столом</summary><textarea id="notes" rows="3" maxlength="4000" placeholder="Заметки (сохраняются только в этом браузере)"></textarea></details>
       <div class="foot"><span>* EV по случайным рукам, без рейка и фолд-эквити; не GTO</span><span>Alt+R — панель</span></div>
     </div>
@@ -268,6 +283,16 @@
   document.documentElement.appendChild(host);
   const el = id => root.getElementById(id);
   const panel = el('panel');
+  el('diagnosticPrepare').onclick=()=>{
+    diagnosticPreview=JSON.stringify(globalThis.PokerNowHistory.diagnostic(current||{},current?.history||{}),null,2);
+    el('diagnosticPreview').value=diagnosticPreview;el('diagnosticPreview').hidden=false;el('diagnosticSave').hidden=false;
+  };
+  el('diagnosticSave').onclick=()=>{
+    if(!diagnosticPreview)return;
+    const url=URL.createObjectURL(new Blob([diagnosticPreview],{type:'application/json'}));
+    const link=document.createElement('a');link.href=url;link.download='PokerNow-diagnostic-v13.json';root.appendChild(link);link.click();link.remove();
+    setTimeout(()=>URL.revokeObjectURL(url),1000);
+  };
   const setText = (id, v) => { el(id).textContent = String(v); };
   const pfOverrides=['pfPlayers','pfPosition','pfScenario','pfLimpers','pfStack','pfFacing','pfOwn'];
   ['pfBB',...pfOverrides].forEach(id=>el(id).addEventListener('input',()=>update()));
@@ -532,7 +557,7 @@
     previousRaw=raw;
     const signature=JSON.stringify([raw.table,raw.handId,raw.hole,raw.board,raw.pot,raw.call,raw.onTurn,raw.players.map(p=>[p.profileId,p.name,p.bet,p.stack,p.status,p.dealer,p.folded])]);
     if(signature!==tableSignature){tableSignature=signature;lastTableChange=Date.now();}
-    raw.paused=document.hidden?'Вкладка скрыта · подсказки приостановлены':Date.now()-lastTableChange>90000?'Стол не менялся более 90 секунд · проверь соединение PokerNow':!raw.hero?'Hero не определён':raw.hero.folded?'Hero уже сбросил карты':'';
+    raw.paused=!raw.holdem || raw.hole.length>2?'Тип игры '+(raw.variant||'не определён')+' · подсказки и equity доступны только для NL Hold’em':document.hidden?'Вкладка скрыта · подсказки приостановлены':Date.now()-lastTableChange>90000?'Стол не менялся более 90 секунд · проверь соединение PokerNow':!raw.hero?'Hero не определён':raw.hero.folded?'Hero уже сбросил карты':'';
   }
   function renderConnection(){
     setText('connection',!bridgeEnabled?'Windows · передача выключена':lastBridgeOK && Date.now()-lastBridgeOK<8000?'Windows · подключено':'Windows · нет свежего ответа');
@@ -542,53 +567,70 @@
     if(v.board.length)return;
     const pf=globalThis.PokerNowPreflop;
     const value=(id,auto)=>el(id).value.trim()===''?auto:Number(el(id).value);
-    const hero=v.hero, bb=value('pfBB',v.bb), count=value('pfPlayers',v.players.length);
+    const history=v.history?.usable?v.history:null;
+    const hero=v.hero, bb=value('pfBB',history?.bb??v.bb), count=value('pfPlayers',v.players.length);
     const position=el('pfPosition').value||pf.inferPosition(v.players,hero);
-    const own=value('pfOwn',hero?.bet||0);
+    const own=value('pfOwn',history?.heroBet??hero?.bet??0);
     const active=v.players.filter(p=>!p.isMe&&!p.folded);
-    const facing=value('pfFacing',bb?Math.max(bb,...v.players.map(p=>p.bet||0)):null);
+    const facing=value('pfFacing',history?.facing??(bb?Math.max(bb,...v.players.map(p=>p.bet||0)):null));
     const totals=active.filter(p=>p.stack!==null).map(p=>p.stack+p.bet);
     const autoStack=hero?.stack==null?null:Math.min(hero.stack,Math.max(0,(totals.length?Math.max(...totals):hero.stack+own)-own));
     const stack=value('pfStack',autoStack);
     const bigBlind=v.players.find(p=>/big blind/i.test(p.status)||pf.inferPosition(v.players,p)==='BB');
-    const limpers=value('pfLimpers',bigBlind&&bb?v.players.filter(p=>!p.isMe&&!p.folded&&p!==bigBlind&&p.bet===bb).length:null);
-    let scenario=el('pfScenario').value;
-    if(!scenario && bb && facing<=bb){
+    const limpers=value('pfLimpers',history?.limpers??(bigBlind&&bb?v.players.filter(p=>!p.isMe&&!p.folded&&p!==bigBlind&&p.bet===bb).length:null));
+    let scenario=el('pfScenario').value||history?.scenario;
+    if(!scenario && !v.logSource?.rows.length && bb && facing<=bb){
       const calls=v.players.filter(p=>!p.isMe&&!p.folded&&/\bcall\b/i.test(p.status));
       const unknown=v.players.some(p=>!p.isMe&&!p.folded&&p.bet===bb&&!/big blind|\bcall\b/i.test(p.status));
       if(!unknown)scenario=calls.length?'limped':'unopened';
     }
     const labels={unopened:'Без рейза',limped:'Лимперы',raise:'Рейз','3bet':'3-бет','4bet':'4-бет'};
-    const facts=[['BB',bb,'pfBB'],['Позиция',position,'pfPosition'],['Игроков',count,'pfPlayers'],['Эфф. остаток',stack,'pfStack'],['Ставка до',facing,'pfFacing'],['Уже внесено',own,'pfOwn'],['До тебя',labels[scenario]||null,'pfScenario'],['Лимперов',scenario==='unopened'?0:scenario==='limped'?limpers:null,'pfLimpers']];
+    const facts=[['BB',bb,'pfBB'],['Позиция',position,'pfPosition'],['Игроков',count,'pfPlayers'],['Эфф. остаток',stack,'pfStack'],['Ставка до',facing,'pfFacing'],['Уже внесено',own,'pfOwn'],['До тебя',labels[scenario]||null,'pfScenario'],['Лимперов',history?limpers:scenario==='unopened'?0:scenario==='limped'?limpers:null,'pfLimpers']];
     const container=el('situation');container.replaceChildren();
     for(const [label,val,id] of facts){
       const fact=document.createElement('div'), manual=el(id).value!=='';
+      const fromHistory=history&&['pfBB','pfOwn','pfFacing','pfLimpers','pfScenario'].includes(id);
       fact.className='fact'+(val==null?' missing':manual?' manual':'');
-      fact.textContent=label+': '+(val??'неизвестно')+'\n'+(manual?'вручную':val==null?'нужно уточнить':'из видимого стола');
+      fact.textContent=label+': '+(val??'неизвестно')+'\n'+(manual?'вручную':val==null?'нужно уточнить':fromHistory?'из журнала · сверено':'из видимого стола');
       container.append(fact);
     }
     setText('decisionContext',[v.hole.join(' '),position||'позиция ?',bb&&stack!=null?(stack/bb).toFixed(1)+' BB остаток':'стек ?'].join(' · '));
     setText('decisionQuality','Эвристика · не GTO · '+(facts.some(f=>el(f[2]).value!=='')?'есть ручные поправки':'видимые данные'));
     try{
       if(v.paused)throw new Error(v.paused);
+      if(history && !v.onTurn && !el('pfScenario').value)throw new Error('История прочитана · жду хода Hero');
       if(v.duplicateCards)throw new Error('Повторяются карты — проверь распознавание');
       if(!bb || bb<=0)throw new Error('Укажи BB в параметрах префлопа');
       if(scenario==='limped' && limpers===null)throw new Error('Укажи число лимперов');
       if(stack==null)throw new Error('Укажи эффективный остаток стека');
-      const r=pf.recommend({cards:v.hole,players:count,position,bb,stack,totalBet:facing,heroBet:own,scenario,limpers:scenario==='limped'?limpers:0});
+      const r=pf.recommend({cards:v.hole,players:count,position,bb,stack,totalBet:facing,heroBet:own,scenario,limpers:scenario==='limped'?limpers:0,minRaiseTo:history && ['pfBB','pfFacing','pfScenario','pfOwn'].every(id=>el(id).value==='')?history.minRaiseTo:undefined});
       setText('decisionAction',r.action+(r.target!==null?' до '+money(r.target):r.action==='CALL'?' '+money(r.call):''));
       setText('decisionReason',r.reason);
     }catch(err){setText('decisionAction','Нужно уточнить');setText('decisionReason',err.message+' · параметры ниже');}
   }
 
+  function renderHistory(v){
+    const h=v.history;
+    setText('historyToggle',h?.usable?'История · начало видно, сверено':h?.status==='postflop'?'История · постфлоп':'История · нужна проверка');
+    setText('historyStatus',h?.reason||'Открой LOG / LEDGER');
+    setText('historySummary',h?.usable?'Повышений: '+h.raises+' · лимперов: '+h.limpers+' · колл: '+money(h.call)+(h.opener?' · открылся: '+h.opener.name+' ('+(globalThis.PokerNowPreflop.inferPosition(v.players,v.players.find(p=>p.profileId===h.opener.profileId))||'позиция ?')+')':''):'');
+    const list=el('historyEvents');list.replaceChildren();
+    const labels={sb:'малый блайнд',bb:'большой блайнд',raise:'рейз до',call:'колл до',check:'чек',fold:'фолд',street:'улица',unknown:'неизвестный формат',end:'конец раздачи'};
+    for(const event of (h?.events||[]).filter(e=>!['stacks','admin'].includes(e.type)).slice(-30)){
+      const item=document.createElement('li');item.textContent=(event.name?event.name+' · ':'')+(labels[event.type]||event.type)+(event.amount!=null?' '+money(event.amount):'')+(event.street?' '+event.street:'');list.append(item);
+    }
+  }
   function update(){
     if(destroyed)return;
     const raw=getState();
+    raw.logSource=globalThis.PokerNowHistory.extract(document);
+    raw.history=globalThis.PokerNowHistory.analyze(raw.logSource,raw);
+    if(!raw.handId && raw.logSource.current)raw.handId=raw.history.handId||'';
     trackHand(raw);
     current=getEffective(raw);
     sendBridge(raw);
     const v=current;
-    renderPreflop(v);
+    renderPreflop(v);renderHistory(v);
     renderConnection();renderProfile();
     setText('freshness',v.paused||handNotice||'Данные из видимого стола · проверяй ситуацию');
     el('freshness').classList.toggle('warn',!!v.paused);
