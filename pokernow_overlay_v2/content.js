@@ -24,11 +24,20 @@
   let lastBridgeSent = 0;
   let profileCache = {};
   let profileReceived = 0;
-  let preflopHand = '';
   let observedBB = null;
+  let previousRaw = null;
+  let lastTableChange = Date.now();
+  let tableSignature = '';
+  let handNotice = '';
+  let selectedPlayer = null;
+  let bridgeEpoch = 0;
+  let lastBridgeOK = 0;
+  let bridgeMessage = 'Передача выключена';
+  let scale = Math.max(.8, Math.min(1.2, Number(settings.scale) || 1));
+  let compact = settings.compact !== false;
 
   const persist = () => {
-    try { localStorage.setItem(storageKey, JSON.stringify({ x: settings.x, y: settings.y, notes, showBadges, minimized })); } catch {};
+    try { localStorage.setItem(storageKey, JSON.stringify({ x: settings.x, y: settings.y, notes, showBadges, minimized, scale, compact })); } catch {};
   };
 
   // Read-only inspection of public/visible DOM: never accesses PokerNow network or game actions.
@@ -112,6 +121,7 @@
     const hole = hero?.cards?.slice(0,2) || [];
     const actions = readCall();
     const blindPoster=players.find(p=>/big blind/i.test(p.status)&&p.bet>0);
+    observedBB=null;
     const blindText=getText($('.table-blinds, .blind-value, .blinds'));
     const blindMatch=blindText.match(/(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)/);
     if(blindPoster) observedBB=blindPoster.bet;
@@ -120,7 +130,10 @@
     const opponents = Math.max(1,players.filter(x=>x!==hero&&!x.folded).length);
     const hand = [hole,...board].map(x=>Array.isArray(x)?x.join(','):x).join('|');
     const duplicateCards = new Set([...hole,...board]).size !== [...hole,...board].length;
+    const handId=getText($('.hand-number, .current-hand-number')) || $('.table-container[data-hand-id]')?.getAttribute('data-hand-id') || '';
+    const dealer=players.find(p=>p.dealer);
     return {players,hero,hole,board,pot,opponents,...actions,hand,duplicateCards,bb:observedBB,
+      table:location.pathname,handId,dealerKey:dealer?(dealer.profileId||dealer.name):'',
       street: board.length===0?'PREFLOP':board.length===3?'FLOP':board.length===4?'TURN':board.length===5?'RIVER':'РАЗДАЧА'};
   }
 
@@ -131,7 +144,8 @@
   root.innerHTML=`<style>
     :host{font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#e8fbff}
     *{box-sizing:border-box}
-    #panel{position:fixed;left:calc(100vw - 380px);top:70px;width:348px;max-width:calc(100vw - 16px);min-width:300px;max-height:calc(100vh - 20px);overflow:hidden;display:flex;flex-direction:column;border-radius:16px;border:1px solid rgba(44,217,238,.62);background:linear-gradient(135deg,rgba(14,30,47,.97),rgba(6,12,25,.975));box-shadow:0 12px 50px rgba(0,0,0,.6),0 0 20px rgba(6,208,244,.2);pointer-events:auto;font-size:13px;line-height:1.35}
+    [hidden]{display:none!important}
+    #panel{transform-origin:top left;position:fixed;left:calc(100vw - 380px);top:70px;width:348px;max-width:calc(100vw - 16px);min-width:300px;max-height:calc(100vh - 20px);overflow:hidden;display:flex;flex-direction:column;border-radius:16px;border:1px solid rgba(44,217,238,.62);background:linear-gradient(135deg,rgba(14,30,47,.97),rgba(6,12,25,.975));box-shadow:0 12px 50px rgba(0,0,0,.6),0 0 20px rgba(6,208,244,.2);pointer-events:auto;font-size:13px;line-height:1.35}
     .header{display:flex;align-items:center;justify-content:space-between;padding:12px 13px;background:linear-gradient(90deg,#0b3442,#0c2035);cursor:grab;user-select:none;touch-action:none;border-bottom:1px solid #17485b}
     .header:active{cursor:grabbing}
     .brand{font-size:15px;font-weight:800;letter-spacing:.3px}.brand em{font-style:normal;color:#50e9e7}
@@ -170,25 +184,40 @@
     details summary{cursor:pointer;color:#a7eaf1;font-weight:700;user-select:none}
     .foot{display:flex;gap:8px;align-items:center;justify-content:space-between;margin-top:10px;color:#7299ad;font-size:10px}
     #seats{position:fixed;inset:0;pointer-events:none}
-    .seat{position:fixed;max-width:145px;min-width:90px;transform:translate(-50%,0);pointer-events:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:center;border:1px solid rgba(51,172,199,.68);background:rgba(1,18,31,.88);color:#d5f6fe;padding:4px 8px;border-radius:7px;box-shadow:0 3px 14px #0009;font-size:10px;line-height:1.4;text-shadow:0 1px 1px #000}
+    .seat{position:fixed;max-width:145px;min-width:90px;transform:translate(-50%,0);pointer-events:auto;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:center;border:1px solid rgba(51,172,199,.68);background:rgba(1,18,31,.88);color:#d5f6fe;padding:4px 8px;border-radius:7px;box-shadow:0 3px 14px #0009;font-size:10px;line-height:1.4;text-shadow:0 1px 1px #000}
     .seat.me{border-color:#ffcc6e;box-shadow:0 0 12px #c48d3380}
     .seat.folded{opacity:.6}
     .seat b{font-size:11px;color:#fff}
     .seat .caption{color:#8bd6e8}
+    .decision{border:1px solid #2b6875;border-radius:12px;background:#0b303a;padding:12px;margin-bottom:8px}
+    #decisionAction{display:block;font-size:25px;font-weight:800;line-height:1.2;color:#76f0c8;margin:5px 0}
+    #decisionContext{color:#a8d3e0;font-size:12px}#decisionReason{font-size:12px;color:#cce5e8}
+    #decisionQuality{color:#ffd58b;font-size:11px}#situation{display:grid;grid-template-columns:1fr 1fr;gap:5px;margin:8px 0}
+    .fact{border:1px solid #244b59;border-radius:6px;padding:6px;font-size:11px;white-space:pre-line}
+    .fact.manual{border-color:#b69149}.fact.missing{border-color:#865d4b;color:#ffd1a4}
+    #freshness,#connection{font-size:11px;margin:5px 0;color:#8fc9ce}#freshness.warn{color:#ffd58b}
+    #profileDetail{white-space:pre-line;border:1px solid #3c6e7e;border-radius:9px;padding:10px;margin:8px 0;background:#102a3a}
+    .seat:focus-visible{outline:2px solid #f4d180}.seat.selected{border-color:#f4d180}
+    .seat .sample{color:#ffd58b}#viewControls{display:flex;gap:7px;align-items:center;margin:9px 0}#viewControls select{width:90px}
     @media(max-width:630px){#panel{width:310px}.metric b{font-size:15px}}
   </style>
   <div id="seats"></div>
   <section id="panel" role="region" aria-label="PokerNow RTA overlay">
     <div id="drag" class="header">
-      <div class="brand">♠ PokerNow <em>RTA</em></div>
+      <div class="brand">♠ PokerNow <em>Analyst</em></div>
       <div class="tools"><button class="icon" id="seatsToggle" title="Показать/скрыть панели игроков">♟</button><button class="icon" id="minToggle" title="Свернуть/развернуть">−</button><button class="icon" id="close" title="Закрыть оверлей">×</button></div>
     </div>
     <div id="body">
       <div class="status"><i id="stateDot" class="dot"></i><span id="stateText">Ожидаю данные стола…</span></div>
+      <div id="connection" role="status">Windows · передача выключена</div>
+      <div id="freshness"></div>
       <div class="strip" id="cards"></div>
       <section id="preflopPanel">
-        <div class="eyebrow">PREFLOP · стартовая рука</div>
-        <div class="insight" id="preflopAdvice">Нужны две карты и параметры стола</div>
+        <div class="decision" id="preflopAdvice" aria-live="polite">
+          <div id="decisionContext">PREFLOP</div><strong id="decisionAction">Ожидание карт</strong>
+          <div id="decisionReason"></div><div id="decisionQuality">Эвристика · не GTO</div>
+        </div>
+        <div id="situation" aria-label="Распознанная ситуация"></div>
         <details><summary>Параметры префлопа / ручная поправка</summary>
           <div class="inputrow"><label for="pfBB">BB</label><input id="pfBB" type="number" min="0" step="any" placeholder="Укажи большой блайнд" /></div>
           <div class="inputrow"><label for="pfPlayers">Игроков</label><input id="pfPlayers" type="number" min="2" max="10" placeholder="Авто" /></div>
@@ -202,6 +231,9 @@
           <div class="muted">* Остаток эффективного стека. Историю рейзов нельзя надёжно восстановить по одной сумме: при повышении выбери её вручную. Проверяй BB и позицию. Эвристика, не GTO.</div>
         </details>
       </section>
+      <div id="viewControls"><button id="compactToggle">Подробнее</button><label for="scaleSelect">Масштаб</label><select id="scaleSelect"><option value="0.8">80%</option><option value="1">100%</option><option value="1.2">120%</option></select><button id="positionReset" title="Вернуть панель в окно">↺</button></div>
+      <div id="profileDetail" hidden></div>
+      <div id="analytics">
       <div class="grid">
         <div class="metric"><small>Банк</small><b id="pot">—</b></div>
         <div class="metric"><small>Нужно коллировать</small><b id="call">—</b></div>
@@ -211,6 +243,7 @@
       <div class="insight" id="advice">Ожидаю данные…</div>
       <div class="row"><label>Оппонентов в симуляции</label><span id="oppInfo">—</span></div>
       <div class="row"><label>Расчётный EV колла*</label><strong id="ev">—</strong></div>
+      </div>
       <details id="manualSection"><summary>✎ Ручная корректировка данных</summary>
         <label class="row"><span>Использовать ручные значения</span><input id="manualEnable" type="checkbox" style="width:auto" /></label>
         <div id="manualForm">
@@ -238,14 +271,34 @@
   const setText = (id, v) => { el(id).textContent = String(v); };
   const pfOverrides=['pfPlayers','pfPosition','pfScenario','pfLimpers','pfStack','pfFacing','pfOwn'];
   ['pfBB',...pfOverrides].forEach(id=>el(id).addEventListener('input',()=>update()));
-  el('pfReset').onclick=()=>{pfOverrides.forEach(id=>el(id).value='');update();};
+  el('pfReset').onclick=()=>{resetHand('Ситуация сброшена вручную');update();};
   if (Number.isFinite(settings.x) && Number.isFinite(settings.y)) {
     panel.style.left=Math.max(0,Math.min(innerWidth-120,settings.x))+'px';
     panel.style.top=Math.max(0,Math.min(innerHeight-55,settings.y))+'px';
   }
+  function clampPanel(){
+    const rect=panel.getBoundingClientRect();
+    settings.x=Math.max(0,Math.min(innerWidth-rect.width,rect.left));
+    settings.y=Math.max(0,Math.min(innerHeight-Math.min(rect.height,80*scale),rect.top));
+    panel.style.left=settings.x+'px';panel.style.top=settings.y+'px';
+    panel.style.maxHeight=Math.max(120,(innerHeight-settings.y-8)/scale)+'px';
+  }
+  function applyView(){
+    panel.style.transform=`scale(${scale})`;
+    panel.style.maxWidth=Math.max(200,(innerWidth-16)/scale)+'px';
+    panel.style.minWidth='0';
+    el('analytics').hidden=compact;
+    el('compactToggle').textContent=compact?'Подробнее':'Компактно';
+    el('scaleSelect').value=String(scale);
+    clampPanel();persist();
+  }
+  el('compactToggle').onclick=()=>{compact=!compact;applyView();};
+  el('scaleSelect').onchange=()=>{scale=Number(el('scaleSelect').value);applyView();};
+  el('positionReset').onclick=()=>{panel.style.left='16px';panel.style.top='60px';applyView();};
+  applyView();
   function applyMin(){el('body').hidden=minimized;el('minToggle').textContent=minimized?'+':'−';persist();}
   applyMin();
-  el('close').onclick=()=>{destroyed=true;observer.disconnect();clearTimeout(debounceId);clearInterval(pollId);window.removeEventListener('resize', schedule);window.removeEventListener('keydown', hotkey);host.remove();};
+  el('close').onclick=()=>{destroyed=true;observer.disconnect();clearTimeout(debounceId);clearInterval(pollId);window.removeEventListener('resize', onResize);document.removeEventListener('visibilitychange', onVisibility);window.removeEventListener('keydown', hotkey);host.remove();};
   el('minToggle').onclick=()=>{minimized=!minimized;applyMin();};
   el('seatsToggle').onclick=()=>{showBadges=!showBadges;el('seats').style.display=showBadges?'':'none';persist();};
   el('seats').style.display=showBadges?'':'none';
@@ -256,6 +309,7 @@
     if (!/^[a-f0-9]{24}$/.test(pairingCode)) {
       bridgeEnabled=false;el('bridgeEnable').checked=false;
     }
+    bridgeEpoch++;profileCache={};lastBridgeOK=0;
     chrome.storage.local.set({pairingCode,bridgeEnabled});
   };
   el('bridgeEnable').onchange=()=>{
@@ -264,6 +318,7 @@
       bridgeEnabled=false;el('bridgeEnable').checked=false;
       setText('bridgeStatus','Нужен корректный 24-символьный код из Windows-приложения');return;
     }
+    bridgeEpoch++;profileCache={};lastBridgeOK=0;
     bridgeEnabled=el('bridgeEnable').checked;chrome.storage.local.set({pairingCode,bridgeEnabled});lastBridgeSent=0;update();
     setText('bridgeStatus',bridgeEnabled?'Соединение…':'Передача выключена');
   };
@@ -286,9 +341,9 @@
   });
   el('drag').addEventListener('pointermove',ev=>{
     if(!drag)return;
-    settings.x=Math.min(innerWidth-80,Math.max(0,drag.left+ev.clientX-drag.x));
+    settings.x=Math.min(Math.max(0,innerWidth-panel.getBoundingClientRect().width),Math.max(0,drag.left+ev.clientX-drag.x));
     settings.y=Math.min(innerHeight-40,Math.max(0,drag.top+ev.clientY-drag.y));
-    panel.style.left=settings.x+'px';panel.style.top=settings.y+'px';
+    panel.style.left=settings.x+'px';panel.style.top=settings.y+'px';clampPanel();
   });
   el('drag').addEventListener('pointerup',()=>{if(drag){drag=null;persist();}});
   el('drag').addEventListener('pointercancel',()=>{drag=null;});
@@ -334,6 +389,7 @@
   function eval7(cards){let best=-1;const n=cards.length;for(let a=0;a<n-4;a++)for(let b=a+1;b<n-3;b++)for(let c=b+1;c<n-2;c++)for(let d=c+1;d<n-1;d++)for(let e=d+1;e<n;e++){const score=evaluate5([cards[a],cards[b],cards[c],cards[d],cards[e]]);if(score>best)best=score;}return best;}
   // A Monte Carlo estimate for random, independent 2-card opponents; not a preflop/GTO range solver.
   function calculateAsync(v){
+    if(v.paused){simToken++;lastEquity=null;lastSignature='';setText('equity','—');el('equityBar').style.width='0%';setText('equityMeta','Пауза');renderAdvice(v);return;}
     const signature=[v.hole.join(','),v.board.join(','),v.opponents].join('|');
     if(signature===lastSignature && lastEquity!==null)return;
     lastSignature=signature;lastEquity=null;trialsRun=0;
@@ -342,7 +398,7 @@
     const used=new Set([...v.hole,...v.board]);const remaining=allCards.filter(c=>!used.has(c));
     const needed=(5-v.board.length)+2*v.opponents;
     if(remaining.length<needed){setText('equity','—');setText('equityMeta','Ошибка колоды');return;}
-    setText('equity','…');setText('equityMeta','Расчёт');el('equityBar').style.width='0%';
+    setText('equity','…');setText('equityMeta','Расчёт');el('equityBar').style.width='0%';renderAdvice(v);
     const total=v.opponents<=2?1800:v.opponents<=5?1000:550;
     let score=0;
     function chunk(){
@@ -363,7 +419,7 @@
         if(heroRank===highest)score+=1/ties;
       }
       trialsRun+=Math.min(70,total-trialsRun);
-      if(trialsRun>=total){lastEquity=score/total;setText('equity','≈ '+(lastEquity*100).toFixed(1)+'%');el('equityBar').style.width=(lastEquity*100).toFixed(1)+'%';setText('equityMeta',total+' сим.');setText('equityNote','Случайные диапазоны · погрешность Монте-Карло · не GTO');renderAdvice(v);}
+      if(trialsRun>=total){lastEquity=score/total;setText('equity','≈ '+(lastEquity*100).toFixed(1)+'%');el('equityBar').style.width=(lastEquity*100).toFixed(1)+'%';setText('equityMeta',total+' сим.');setText('equityNote','Случайные диапазоны · погрешность Монте-Карло · не GTO');renderAdvice(current||v);}
       else setTimeout(chunk,0);
     }
     setTimeout(chunk,0);
@@ -377,6 +433,7 @@
     let ev=null;
     if(lastEquity!==null&&odds!==null){ev=lastEquity*(p+c)-c;setText('ev',(ev>=0?'+':'')+money(ev));}
     else setText('ev','—');
+    if(v.paused){box.textContent=v.paused;setText('ev','—');return;}
     if(v.duplicateCards){box.textContent='Повторяются карты — исправь их вручную.';return;}
     if(v.hole.length!==2){box.textContent='Твои карты пока не видны. Сядь за стол или введи карты вручную.';return;}
     if(c===0){box.textContent='Доступен чек: для продолжения не требуется оплачивать ставку. Equity показано относительно случайных рук.';return;}
@@ -392,10 +449,11 @@
     // Reusing nodes avoids HUD flicker during repeated board animations.
     const used=new Set();
     s.players.forEach((p,i)=>{
-      const key=String(i);used.add(key);
-      let node=layer.querySelector('[data-seat="'+key+'"]');
-      if(!node){node=document.createElement('div');node.setAttribute('data-seat',key);layer.appendChild(node);}
-      node.className='seat'+(p.isMe?' me':'')+(p.folded?' folded':'');
+      const key=p.profileId?'p:'+p.profileId:'n:'+p.name.toLowerCase();used.add(key);
+      let node=[...layer.children].find(n=>n.dataset.seat===key);
+      if(!node){node=document.createElement('button');node.type='button';node.setAttribute('data-seat',key);layer.appendChild(node);node.onclick=()=>{selectedPlayer=selectedPlayer===key?null:key;if(selectedPlayer && minimized){minimized=false;applyMin();}renderProfile();};}
+      node.setAttribute('aria-label','Профиль: '+p.name);
+      node.className='seat'+(selectedPlayer===key?' selected':'')+(p.isMe?' me':'')+(p.folded?' folded':'');
       const rect=p.el.getBoundingClientRect();
       node.style.left=Math.max(65,Math.min(innerWidth-65,rect.left+rect.width/2))+'px';
       let top=rect.bottom+4;
@@ -410,19 +468,27 @@
         const stats=document.createElement('div');
         stats.textContent=profile.hands?`VPIP ${profile.vpip}% · PFR ${profile.pfr}% · ${profile.hands} рук`:'Нет импортированных раздач';
         node.append(stats);
-        const aliases=(profile.aliases||[]).filter(n=>n!==p.name);
-        if(aliases.length){const a=document.createElement('div');a.textContent='Ранее: '+aliases.join(', ');node.append(a);}
-        if(profile.note){const n=document.createElement('div');n.textContent='Заметка: '+profile.note;node.append(n);}
+        if(profile.hands<50){const sample=document.createElement('div');sample.className='sample';sample.textContent='Малая выборка';node.append(sample);}
       }
     });
     layer.querySelectorAll('[data-seat]').forEach(node=>{if(!used.has(node.dataset.seat))node.remove();});
   }
 
+  function renderProfile(){
+    const box=el('profileDetail');
+    const player=current?.players.find(p=>(p.profileId?'p:'+p.profileId:'n:'+p.name.toLowerCase())===selectedPlayer);
+    box.hidden=!player;
+    if(!player){selectedPlayer=null;return;}
+    const profile=bridgeEnabled && Date.now()-profileReceived<8000?profileCache[selectedPlayer]:null;
+    box.textContent=player.name+' · '+(player.profileId?'PokerNow ID':'Только ник — личность не подтверждена')+'\n'+
+      (profile?`${profile.hands} рук${profile.hands<50?' · малая выборка':''}\nРанее: ${(profile.aliases||[]).filter(n=>n!==player.name).join(', ')||'—'}\nЗаметка: ${profile.note||'—'}\nИзменить заметку можно в Windows-приложении.`:'Нет свежей связи с профилем в Windows-приложении.');
+  }
   function sendBridge(raw){
     if (!bridgeEnabled || !/^[a-f0-9]{24}$/.test(pairingCode)) return;
     const now=Date.now();
     if (now-lastBridgeSent<1700) return;
     lastBridgeSent=now;
+    const epoch=bridgeEpoch, table=raw.table;
     const snapshot={
       tableId: location.pathname.split('/games/')[1]?.split('/')[0] || 'unknown',
       street:raw.street, pot:raw.pot, call:raw.call, onTurn:raw.onTurn,
@@ -432,62 +498,102 @@
         bet:p.bet,status:p.status,isMe:p.isMe,folded:p.folded}))
     };
     chrome.runtime.sendMessage({type:'PN_ANALYST_SNAPSHOT',token:pairingCode,snapshot}, reply=>{
-      if(destroyed)return;
+      if(destroyed||epoch!==bridgeEpoch||table!==location.pathname)return;
       const err=chrome.runtime.lastError;
-      if(reply?.ok){profileCache=reply.profiles||{};profileReceived=Date.now();}
-      else {profileCache={};}
+      if(reply?.ok){profileCache=reply.profiles||{};profileReceived=Date.now();lastBridgeOK=Date.now();}
+      else {profileCache={};lastBridgeOK=0;}
       if(reply?.extensionReloaded){bridgeEnabled=false;setText('bridgeStatus','Расширение обновлено. Обнови вкладку стола, чтобы загрузить новую версию.');return;}
-      setText('bridgeStatus',err?'Ошибка расширения: '+err.message:
+      bridgeMessage=err?'Ошибка расширения: '+err.message:
         reply?.ok?'● Связь с Windows · '+new Date().toLocaleTimeString():
-        'Нет связи: '+(reply?.error||'запусти приложение'));
+        'Нет связи: '+(reply?.error||'запусти приложение');
+      setText('bridgeStatus',bridgeMessage);renderConnection();renderProfile();
     });
   }
 
+  function resetHand(reason){
+    pfOverrides.forEach(id=>el(id).value='');el('pfBB').value='';
+    ['holeInput','boardInput','potInput','callInput','oppInput'].forEach(id=>el(id).value='');
+    manualEnabled=false;el('manualEnable').checked=false;
+    simToken++;lastSignature='';lastEquity=null;trialsRun=0;
+    handNotice=reason;selectedPlayer=null;
+  }
+  function trackHand(raw){
+    const old=previousRaw;
+    if(old){
+      const tableChanged=raw.table!==old.table;
+      const nextHand=tableChanged || (raw.handId && old.handId && raw.handId!==old.handId)
+        || (old.board.length>0 && raw.board.length===0)
+        || (old.hole.join(',')!==raw.hole.join(','))
+        || (raw.dealerKey && old.dealerKey && raw.dealerKey!==old.dealerKey)
+        || (old.hero?.profileId!==raw.hero?.profileId);
+      if(nextHand)resetHand(tableChanged?'Другой стол · ручные данные сброшены':'Смена раздачи/карт · ручные данные сброшены');
+      if(tableChanged){bridgeEpoch++;profileCache={};lastBridgeOK=0;lastBridgeSent=0;}
+    }
+    previousRaw=raw;
+    const signature=JSON.stringify([raw.table,raw.handId,raw.hole,raw.board,raw.pot,raw.call,raw.onTurn,raw.players.map(p=>[p.profileId,p.name,p.bet,p.stack,p.status,p.dealer,p.folded])]);
+    if(signature!==tableSignature){tableSignature=signature;lastTableChange=Date.now();}
+    raw.paused=document.hidden?'Вкладка скрыта · подсказки приостановлены':Date.now()-lastTableChange>90000?'Стол не менялся более 90 секунд · проверь соединение PokerNow':!raw.hero?'Hero не определён':raw.hero.folded?'Hero уже сбросил карты':'';
+  }
+  function renderConnection(){
+    setText('connection',!bridgeEnabled?'Windows · передача выключена':lastBridgeOK && Date.now()-lastBridgeOK<8000?'Windows · подключено':'Windows · нет свежего ответа');
+  }
   function renderPreflop(v){
     el('preflopPanel').hidden=v.board.length!==0;
-    const signature=v.hole.join(',')+'|'+(v.board.length?'post':'pre');
-    if(preflopHand && signature!==preflopHand){pfOverrides.forEach(id=>el(id).value='');}
-    preflopHand=signature;
-    if(v.board.length) return;
-    try {
-      const pf=globalThis.PokerNowPreflop;
-      const value=(id, auto)=>el(id).value.trim()===''?auto:Number(el(id).value);
-      const hero=v.hero;
-      const bb=value('pfBB',v.bb);
-      if(!bb || bb<=0) throw new Error('Укажи BB в параметрах префлопа');
-      const count=value('pfPlayers',v.players.length);
-      const position=el('pfPosition').value||pf.inferPosition(v.players,hero);
-      const own=value('pfOwn',hero?.bet||0);
-      const active=v.players.filter(p=>!p.isMe&&!p.folded);
-      const facing=value('pfFacing',Math.max(bb,...v.players.map(p=>p.bet||0)));
-      const totals=active.filter(p=>p.stack!==null).map(p=>p.stack+p.bet);
-      const autoStack=hero?.stack==null?null:Math.min(hero.stack,Math.max(0,(totals.length?Math.max(...totals):hero.stack+own)-own));
-      const stack=value('pfStack',autoStack);
-      const bigBlind=v.players.find(p=>/big blind/i.test(p.status)||pf.inferPosition(v.players,p)==='BB');
-      const limpers=value('pfLimpers',bigBlind?v.players.filter(p=>!p.isMe&&!p.folded&&p!==bigBlind&&p.bet===bb).length:null);
-      // Blind/call status must be explicit; a matching bet alone is ambiguous.
-      let scenario=el('pfScenario').value;
-      if(!scenario && facing<=bb){
-        const calls=v.players.filter(p=>!p.isMe&&!p.folded&&/\bcall\b/i.test(p.status));
-        const unknown=v.players.some(p=>!p.isMe&&!p.folded&&p.bet===bb&&!/big blind|\bcall\b/i.test(p.status));
-        if(!unknown) scenario=calls.length?'limped':'unopened';
-      }
-      if(scenario==='limped' && limpers===null) throw new Error('Укажи число лимперов');
+    if(v.board.length)return;
+    const pf=globalThis.PokerNowPreflop;
+    const value=(id,auto)=>el(id).value.trim()===''?auto:Number(el(id).value);
+    const hero=v.hero, bb=value('pfBB',v.bb), count=value('pfPlayers',v.players.length);
+    const position=el('pfPosition').value||pf.inferPosition(v.players,hero);
+    const own=value('pfOwn',hero?.bet||0);
+    const active=v.players.filter(p=>!p.isMe&&!p.folded);
+    const facing=value('pfFacing',bb?Math.max(bb,...v.players.map(p=>p.bet||0)):null);
+    const totals=active.filter(p=>p.stack!==null).map(p=>p.stack+p.bet);
+    const autoStack=hero?.stack==null?null:Math.min(hero.stack,Math.max(0,(totals.length?Math.max(...totals):hero.stack+own)-own));
+    const stack=value('pfStack',autoStack);
+    const bigBlind=v.players.find(p=>/big blind/i.test(p.status)||pf.inferPosition(v.players,p)==='BB');
+    const limpers=value('pfLimpers',bigBlind&&bb?v.players.filter(p=>!p.isMe&&!p.folded&&p!==bigBlind&&p.bet===bb).length:null);
+    let scenario=el('pfScenario').value;
+    if(!scenario && bb && facing<=bb){
+      const calls=v.players.filter(p=>!p.isMe&&!p.folded&&/\bcall\b/i.test(p.status));
+      const unknown=v.players.some(p=>!p.isMe&&!p.folded&&p.bet===bb&&!/big blind|\bcall\b/i.test(p.status));
+      if(!unknown)scenario=calls.length?'limped':'unopened';
+    }
+    const labels={unopened:'Без рейза',limped:'Лимперы',raise:'Рейз','3bet':'3-бет','4bet':'4-бет'};
+    const facts=[['BB',bb,'pfBB'],['Позиция',position,'pfPosition'],['Игроков',count,'pfPlayers'],['Эфф. остаток',stack,'pfStack'],['Ставка до',facing,'pfFacing'],['Уже внесено',own,'pfOwn'],['До тебя',labels[scenario]||null,'pfScenario'],['Лимперов',scenario==='unopened'?0:scenario==='limped'?limpers:null,'pfLimpers']];
+    const container=el('situation');container.replaceChildren();
+    for(const [label,val,id] of facts){
+      const fact=document.createElement('div'), manual=el(id).value!=='';
+      fact.className='fact'+(val==null?' missing':manual?' manual':'');
+      fact.textContent=label+': '+(val??'неизвестно')+'\n'+(manual?'вручную':val==null?'нужно уточнить':'из видимого стола');
+      container.append(fact);
+    }
+    setText('decisionContext',[v.hole.join(' '),position||'позиция ?',bb&&stack!=null?(stack/bb).toFixed(1)+' BB остаток':'стек ?'].join(' · '));
+    setText('decisionQuality','Эвристика · не GTO · '+(facts.some(f=>el(f[2]).value!=='')?'есть ручные поправки':'видимые данные'));
+    try{
+      if(v.paused)throw new Error(v.paused);
+      if(v.duplicateCards)throw new Error('Повторяются карты — проверь распознавание');
+      if(!bb || bb<=0)throw new Error('Укажи BB в параметрах префлопа');
+      if(scenario==='limped' && limpers===null)throw new Error('Укажи число лимперов');
+      if(stack==null)throw new Error('Укажи эффективный остаток стека');
       const r=pf.recommend({cards:v.hole,players:count,position,bb,stack,totalBet:facing,heroBet:own,scenario,limpers:scenario==='limped'?limpers:0});
-      setText('preflopAdvice',`${r.hand} · ${position} · ${r.stackBB.toFixed(1)} BB\n${r.action}${r.target!==null?' до '+money(r.target):r.action==='CALL'?' '+money(r.call):''}\n${r.reason}\n${r.caveat}`);
-      el('preflopAdvice').style.whiteSpace='pre-line';
-    } catch(err){setText('preflopAdvice',err.message+' · открой параметры ниже');}
+      setText('decisionAction',r.action+(r.target!==null?' до '+money(r.target):r.action==='CALL'?' '+money(r.call):''));
+      setText('decisionReason',r.reason);
+    }catch(err){setText('decisionAction','Нужно уточнить');setText('decisionReason',err.message+' · параметры ниже');}
   }
 
   function update(){
     if(destroyed)return;
     const raw=getState();
+    trackHand(raw);
     current=getEffective(raw);
     sendBridge(raw);
     const v=current;
     renderPreflop(v);
-    setText('stateText',v.hero?'LIVE · '+v.street+(v.onTurn?' · ТВОЙ ХОД':''):'Стол открыт · Hero не определён');
-    el('stateDot').classList.toggle('ok',!!v.hero);
+    renderConnection();renderProfile();
+    setText('freshness',v.paused||handNotice||'Данные из видимого стола · проверяй ситуацию');
+    el('freshness').classList.toggle('warn',!!v.paused);
+    setText('stateText',v.paused?'ПАУЗА · '+v.street:v.hero?'LIVE · '+v.street+(v.onTurn?' · ТВОЙ ХОД':''):'Стол открыт · Hero не определён');
+    el('stateDot').classList.toggle('ok',!!v.hero&&!v.paused);
     setText('pot',money(v.pot));setText('call',money(v.call));setText('oppInfo',v.opponents+' · '+v.players.length+' за столом');
     el('cards').innerHTML=`<span class="small subtle">HERO</span>${(v.hole.length?v.hole:['','']).map(displayCards).join('')}<span class="small subtle">BOARD</span>${(v.board.length?v.board:['','','']).map(displayCards).join('')}`;
     if(v.action)setText('stateText',el('stateText').textContent+' · '+v.action.slice(0,45));
@@ -501,8 +607,11 @@
     // Ignore our own host changes; closed-loop mutations should not trigger scans.
     if(mutations.some(m=>m.target!==host&&!host.contains(m.target)))schedule();
   });
-  observer.observe(document.body||document.documentElement,{subtree:true,childList:true,characterData:true,attributes:true,attributeFilter:['class']});
-  window.addEventListener('resize',schedule);
+  observer.observe(document.body||document.documentElement,{subtree:true,childList:true,characterData:true,attributes:true,attributeFilter:['class','data-hand-id']});
+  function onResize(){clampPanel();persist();schedule();}
+  function onVisibility(){simToken++;lastSignature='';lastEquity=null;update();}
+  window.addEventListener('resize',onResize);
+  document.addEventListener('visibilitychange',onVisibility);
   update();
   // Even when PokerNow replaces its entire table tree without observable text, poll gently.
   const pollId=setInterval(()=>{if(!destroyed&&document.getElementById('pnow-rta-extension-root'))schedule();},2500);

@@ -2,13 +2,29 @@
   "manifest_version": 3,
   "name": "PokerNow Analyst Overlay",
   "description": "Read-only PokerNow overlay with local pairing to the PokerNow Analyst desktop app.",
-  "version": "11.0.0",
-  "permissions": ["storage"],
-  "host_permissions": ["http://127.0.0.1:8765/*"],
-  "background": {"service_worker": "background.js"},
-  "content_scripts": [{
-    "matches": ["https://www.pokernow.com/games/*", "https://pokernow.com/games/*", "https://www.pokernow.club/games/*", "https://pokernow.club/games/*"],
-    "js": ["preflop.js", "content.js"],
-    "run_at": "document_idle"
-  }]
+  "version": "12.0.0",
+  "permissions": [
+    "storage"
+  ],
+  "host_permissions": [
+    "http://127.0.0.1:8765/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.pokernow.com/games/*",
+        "https://pokernow.com/games/*",
+        "https://www.pokernow.club/games/*",
+        "https://pokernow.club/games/*"
+      ],
+      "js": [
+        "preflop.js",
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
 }
