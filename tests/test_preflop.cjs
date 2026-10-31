@@ -22,3 +22,17 @@ test('contradictory action and bet rejected',()=>assert.throws(()=>pf.recommend(
 test('button position from seats',()=>{const p=Array.from({length:6},(_,seat)=>({seat,dealer:seat===3}));assert.equal(pf.inferPosition(p,p[3]),'BTN');assert.equal(pf.inferPosition(p,p[4]),'SB');assert.equal(pf.inferPosition(p,p[5]),'BB');});
 test('heads up button is small blind',()=>{const p=[{seat:0,dealer:true},{seat:1}];assert.equal(pf.inferPosition(p,p[0]),'SB');});
 test('unknown dealer does not invent position',()=>assert.equal(pf.inferPosition([{seat:0},{seat:1}],{seat:0}),null));
+
+test('sparse seats and folded players preserve clockwise positions',()=>{
+ const p=[{seat:10},{seat:2,dealer:true,folded:true},{seat:5,folded:true},{seat:7}];
+ assert.deepEqual(p.map(h=>pf.inferPosition(p,h)),['CO','BTN','SB','BB']);
+});
+test('new arrivals have no position until dealt in',()=>{
+ const p=[{seat:1,dealer:true},{seat:4,waitingNextHand:true},{seat:8}];
+ assert.equal(pf.inferPosition(p,p[0]),'SB');assert.equal(pf.inferPosition(p,p[1]),null);
+ assert.equal(pf.inferPosition(p,p[2]),'BB');
+});
+test('ambiguous and duplicate seats fail closed',()=>{
+ const p=[{seat:1,dealer:true},{seat:1}];assert.equal(pf.inferPosition(p,p[0]),null);
+ p[1].seat=2;p[1].dealer=true;assert.equal(pf.inferPosition(p,p[0]),null);
+});

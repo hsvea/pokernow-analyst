@@ -146,3 +146,36 @@ test('players tab shows current membership only and removes departed players',()
  assert.equal(el('handView').hidden,false);
  }finally{dom.window.close();}
 });
+
+test('separate PokerNow dealer chip sets position and follows button movement',()=>{
+ const {dom,w,el,tick}=fixture();try{
+ const marker=w.document.createElement('div');marker.className='dealer-button-ctn dealer-position-2';
+ w.document.querySelector('.table-container').append(marker);tick();
+ assert.match(el('situation').textContent,/Позиция: SB/);
+ assert.match(el('situation').textContent,/по фишке дилера/);
+ assert.match(el('cards').textContent,/HERO · SB/);
+ marker.className='dealer-button-ctn dealer-position-1';tick();
+ assert.match(el('situation').textContent,/Позиция: BB/);
+ // A malformed or duplicate external marker must not fall back to an old nested chip.
+ marker.className='dealer-button-ctn';tick();
+ assert.match(el('cards').textContent,/позиция \?/);
+ marker.className='dealer-button-ctn dealer-position-1';marker.after(marker.cloneNode());tick();
+ assert.match(el('cards').textContent,/позиция \?/);
+ }finally{dom.window.close();}
+});
+test('real status icons identify next-hand arrivals without removing folded seats',()=>{
+ const {dom,w,el,tick}=fixture();try{
+ const player=w.document.querySelector('.table-player-1');
+ player.insertAdjacentHTML('beforeend','<p class="table-player-status-icon waiting-next-hand">In Next Hand</p>');tick();
+ assert.match(el('situation').textContent,/Игроков: 2/);
+ assert.match(el('cards').textContent,/HERO · SB/);
+ player.querySelector('.table-player-status-icon').className='table-player-status-icon fold';
+ player.querySelector('.table-player-status-icon').textContent='Fold';tick();
+ assert.match(el('situation').textContent,/Игроков: 3/);
+ assert.match(el('cards').textContent,/HERO · BTN/);
+ // Position remains visible on the flop, where the preflop panel is hidden.
+ w.document.querySelector('.table-cards').innerHTML=['2','3','4'].map(v=>'<div class="card-container"><span class="value">'+v+'</span><span class="suit">d</span></div>').join('');tick();
+ assert.equal(el('preflopPanel').hidden,true);
+ assert.match(el('cards').textContent,/HERO · BTN/);
+ }finally{dom.window.close();}
+});

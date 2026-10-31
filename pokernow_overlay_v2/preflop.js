@@ -16,6 +16,8 @@
     return map[n] || [];
   }
   function inferPosition(players, hero) {
+    // Folded players keep their original position; next-hand arrivals do not yet have one.
+    players=players.filter(p=>!p.waitingNextHand);
     if (!hero || players.length<2 || players.length>10 || players.filter(p=>p.dealer).length!==1 || players.some(p=>!Number.isInteger(p.seat))) return null;
     const sorted = [...players].sort((a,b)=>a.seat-b.seat);
     if (new Set(sorted.map(p=>p.seat)).size!==sorted.length) return null;

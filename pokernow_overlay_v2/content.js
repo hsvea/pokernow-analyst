@@ -96,6 +96,10 @@
       action: buttonTexts.filter(t=>/^(fold|call|check|raise|bet|all in)/i.test(t)).slice(0,4).join(' · ')};
   }
   function readPlayers() {
+    // PokerNow renders the button as a sibling of the seats, not inside a player.
+    const markers=$$('.dealer-button-ctn');
+    const dealerSeats=markers.map(e=>e.className.match(/(?:^|\s)dealer-position-(\d+)(?:\s|$)/)?.[1]);
+    const dealerSeat=dealerSeats.length===1&&dealerSeats[0]!==undefined?Number(dealerSeats[0]):null;
     return $$('.table-player').map(el=>{
       const link = $('a[href*="/players/"]',el);
       if (!link) return null;
@@ -103,13 +107,14 @@
       if (!name) return null;
       const stackEl = $('.table-player-stack',el) || $('[class*="player-stack"]',el);
       const betEl = $('[class*="bet-value"]',el);
-      const statusEl = $('.table-player-status-message',el);
+      const statusEl = $('.table-player-status-icon, .table-player-status-message',el);
       const playerCards = readCards(el);
       const profileId = (link.getAttribute('href') || '').split('/players/')[1]?.split(/[/?#]/)[0] || '';
       const seatMatch = [...el.classList].join(' ').match(/(?:^|\s)table-player-(\d+)(?:\s|$)/);
       const seatRaw = el.getAttribute('data-seat') ?? (seatMatch ? seatMatch[1] : null);
       return {el,name,profileId,seat:seatRaw===null?null:Number(seatRaw),
-        dealer:!!$('.dealer-button, .table-player-dealer',el)||el.classList.contains('dealer'),
+        dealer:markers.length?dealerSeat!==null&&seatRaw!==null&&Number(seatRaw)===dealerSeat:!!$('.dealer-button, .table-player-dealer',el)||el.classList.contains('dealer'),
+        waitingNextHand:!!$('.waiting-next-hand',el)||/in next hand/i.test(getText(statusEl)),
         stack:normalizeNumber(getText(stackEl)),bet:normalizeNumber(getText(betEl))||0,
         status:getText(statusEl),isMe:el.classList.contains('you-player'),
         folded:el.classList.contains('fold')||el.classList.contains('folded')||/\bfold\b/i.test(getText(statusEl)),
@@ -634,7 +639,7 @@
     const pf=globalThis.PokerNowPreflop;
     const value=(id,auto)=>el(id).value.trim()===''?auto:Number(el(id).value);
     const history=v.history?.usable?v.history:null;
-    const hero=v.hero, bb=value('pfBB',history?.bb??v.bb), count=value('pfPlayers',v.players.length);
+    const hero=v.hero, bb=value('pfBB',history?.bb??v.bb), count=value('pfPlayers',v.players.filter(p=>!p.waitingNextHand).length);
     const position=el('pfPosition').value||pf.inferPosition(v.players,hero);
     const own=value('pfOwn',history?.heroBet??hero?.bet??0);
     const active=v.players.filter(p=>!p.isMe&&!p.folded);
@@ -657,7 +662,7 @@
       const fact=document.createElement('div'), manual=el(id).value!=='';
       const fromHistory=history&&['pfBB','pfOwn','pfFacing','pfLimpers','pfScenario'].includes(id);
       fact.className='fact'+(val==null?' missing':manual?' manual':'');
-      fact.textContent=label+': '+(val??'неизвестно')+'\n'+(manual?'вручную':val==null?'нужно уточнить':fromHistory?'из журнала · сверено':'из видимого стола');
+      fact.textContent=label+': '+(val??'неизвестно')+'\n'+(manual?'вручную':val==null?'нужно уточнить':id==='pfPosition'?'по фишке дилера':fromHistory?'из журнала · сверено':'из видимого стола');
       container.append(fact);
     }
     setText('decisionContext',[v.hole.join(' '),position||'позиция ?',bb&&stack!=null?(stack/bb).toFixed(1)+' BB остаток':'стек ?'].join(' · '));
@@ -703,7 +708,8 @@
     setText('stateText',v.paused?'ПАУЗА · '+v.street:v.hero?'LIVE · '+v.street+(v.onTurn?' · ТВОЙ ХОД':''):'Стол открыт · Hero не определён');
     el('stateDot').classList.toggle('ok',!!v.hero&&!v.paused);
     setText('pot',money(v.pot));setText('call',money(v.call));setText('oppInfo',v.opponents+' · '+v.players.length+' за столом');
-    el('cards').innerHTML=`<span class="small subtle">HERO</span>${(v.hole.length?v.hole:['','']).map(displayCards).join('')}<span class="small subtle">BOARD</span>${(v.board.length?v.board:['','','']).map(displayCards).join('')}`;
+    const autoPosition=globalThis.PokerNowPreflop.inferPosition(v.players,v.hero);
+    el('cards').innerHTML=`<span class="small subtle" title="Позиция по фишке дилера">HERO · ${autoPosition||'позиция ?'}</span>${(v.hole.length?v.hole:['','']).map(displayCards).join('')}<span class="small subtle">BOARD</span>${(v.board.length?v.board:['','','']).map(displayCards).join('')}`;
     if(v.action)setText('stateText',el('stateText').textContent+' · '+v.action.slice(0,45));
     renderSeats(v);
     const before=lastSignature;
