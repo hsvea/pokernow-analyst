@@ -36,9 +36,10 @@
   let bridgeMessage = 'Передача выключена';
   let scale = Math.max(.8, Math.min(1.2, Number(settings.scale) || 1));
   let compact = settings.compact !== false;
+  let activeView = settings.activeView==='players'?'players':'hand';
 
   const persist = () => {
-    try { localStorage.setItem(storageKey, JSON.stringify({ x: settings.x, y: settings.y, notes, showBadges, minimized, scale, compact })); } catch {};
+    try { localStorage.setItem(storageKey, JSON.stringify({ x: settings.x, y: settings.y, notes, showBadges, minimized, scale, compact, activeView })); } catch {};
   };
 
   // Read-only inspection of public/visible DOM: never accesses PokerNow network or game actions.
@@ -202,6 +203,12 @@
     #profileDetail{white-space:pre-line;border:1px solid #3c6e7e;border-radius:9px;padding:10px;margin:8px 0;background:#102a3a}
     .seat:focus-visible{outline:2px solid #f4d180}.seat.selected{border-color:#f4d180}
     .seat .sample{color:#ffd58b}#viewControls{display:flex;gap:7px;align-items:center;margin:9px 0}#viewControls select{width:90px}
+    .viewTabs{display:flex;gap:6px;margin:10px 0}.viewTabs button{flex:1}.viewTabs [aria-selected="true"]{background:#1a6370;border-color:#69dedb;color:white}
+    .statsScroll{overflow:auto;margin:10px 0}#activeStats{border-collapse:collapse;min-width:590px;width:100%;font-size:11px}
+    #activeStats th,#activeStats td{text-align:right;border-bottom:1px solid #244b59;padding:7px 5px;white-space:nowrap}
+    #activeStats th:first-child,#activeStats td:first-child{text-align:left}#activeStats td button{max-width:125px;overflow:hidden;text-overflow:ellipsis;padding:3px 5px}
+    #activeStats tr.selected{background:#16404d}#tableProfileDetail{white-space:pre-line;font-size:12px;border-left:3px solid #3b9baf;padding:8px}
+    #tableStatsMessage{font-size:12px;color:#afd4dc;margin:8px 0}.statsHint{font-size:10px;color:#8fb4c2}
     @media(max-width:630px){#panel{width:310px}.metric b{font-size:15px}}
   </style>
   <div id="seats"></div>
@@ -214,6 +221,8 @@
       <div class="status"><i id="stateDot" class="dot"></i><span id="stateText">Ожидаю данные стола…</span></div>
       <div id="connection" role="status">Windows · передача выключена</div>
       <div id="freshness"></div>
+      <div class="viewTabs" role="tablist" aria-label="Раздел оверлея"><button id="handTab" role="tab" aria-controls="handView" aria-selected="true">Раздача</button><button id="playersTab" role="tab" aria-controls="tablePlayersView" aria-selected="false">Игроки</button></div>
+      <div id="handView" role="tabpanel" aria-labelledby="handTab">
       <div class="strip" id="cards"></div>
       <details id="historySection"><summary id="historyToggle">История действий · префлоп</summary>
         <div id="historyStatus" class="muted" style="margin:8px 0">Открой LOG / LEDGER</div>
@@ -277,12 +286,34 @@
         <button id="diagnosticSave" hidden>Сохранить этот JSON</button>
       </details>
       <details><summary>Заметки за столом</summary><textarea id="notes" rows="3" maxlength="4000" placeholder="Заметки (сохраняются только в этом браузере)"></textarea></details>
+      </div>
+      <section id="tablePlayersView" role="tabpanel" aria-labelledby="playersTab" hidden>
+        <div id="tableStatsMessage" role="status">Ожидание стола</div>
+        <div class="statsHint">Статистика по всем импортированным завершённым рукам этих игроков. Не только текущий стол; типы игр не разделены.</div>
+        <label class="row"><span>Только в раздаче*</span><input id="playersInHand" type="checkbox" style="width:auto" /></label>
+        <div class="inputrow"><label for="playersSort">Сортировка</label><select id="playersSort"><option value="seat">За столом</option><option value="hands">Число рук</option><option value="vpip">VPIP</option><option value="name">Ник</option></select></div>
+        <div class="statsScroll"><table id="activeStats"><thead><tr><th scope="col">Игрок</th><th scope="col">Рук</th><th scope="col">VPIP</th><th scope="col">PFR</th><th scope="col">3-bet</th><th scope="col">F/3-bet</th><th scope="col">AF</th><th scope="col">Статус</th></tr></thead><tbody id="activeStatsBody"></tbody></table></div>
+        <div class="statsHint">Прокрути таблицу вправо для остальных показателей. «—» — нет данных или возможностей. Менее 50 рук: малая выборка; большее число не гарантирует надёжности. * По видимому статусу, без проверки полной истории.</div>
+        <div id="tableProfileDetail" hidden></div>
+      </section>
       <div class="foot"><span>* EV по случайным рукам, без рейка и фолд-эквити; не GTO</span><span>Alt+R — панель</span></div>
     </div>
   </section>`;
   document.documentElement.appendChild(host);
   const el = id => root.getElementById(id);
   const panel = el('panel');
+  function applyTab(){
+    const players=activeView==='players';panel.style.width=players?'650px':'';if(current)clampPanel();el('handView').hidden=players;el('tablePlayersView').hidden=!players;
+    el('handTab').setAttribute('aria-selected',String(!players));el('playersTab').setAttribute('aria-selected',String(players));persist();
+  }
+  el('handTab').onclick=()=>{activeView='hand';applyTab();};
+  el('playersTab').onclick=()=>{activeView='players';applyTab();renderTablePlayers();};
+  for(const id of ['handTab','playersTab'])el(id).onkeydown=event=>{
+    if(!['ArrowLeft','ArrowRight','Home','End'].includes(event.key))return;
+    event.preventDefault();activeView=event.key==='Home'?'hand':event.key==='End'?'players':activeView==='hand'?'players':'hand';applyTab();el(activeView==='hand'?'handTab':'playersTab').focus();
+  };
+  el('playersInHand').onchange=renderTablePlayers;el('playersSort').onchange=renderTablePlayers;
+  applyTab();
   el('diagnosticPrepare').onclick=()=>{
     diagnosticPreview=JSON.stringify(globalThis.PokerNowHistory.diagnostic(current||{},current?.history||{}),null,2);
     el('diagnosticPreview').value=diagnosticPreview;el('diagnosticPreview').hidden=false;el('diagnosticSave').hidden=false;
@@ -290,7 +321,7 @@
   el('diagnosticSave').onclick=()=>{
     if(!diagnosticPreview)return;
     const url=URL.createObjectURL(new Blob([diagnosticPreview],{type:'application/json'}));
-    const link=document.createElement('a');link.href=url;link.download='PokerNow-diagnostic-v13.json';root.appendChild(link);link.click();link.remove();
+    const link=document.createElement('a');link.href=url;link.download='PokerNow-diagnostic-v14.json';root.appendChild(link);link.click();link.remove();
     setTimeout(()=>URL.revokeObjectURL(url),1000);
   };
   const setText = (id, v) => { el(id).textContent = String(v); };
@@ -503,10 +534,45 @@
     const box=el('profileDetail');
     const player=current?.players.find(p=>(p.profileId?'p:'+p.profileId:'n:'+p.name.toLowerCase())===selectedPlayer);
     box.hidden=!player;
+    el('tableProfileDetail').hidden=!player;
     if(!player){selectedPlayer=null;return;}
     const profile=bridgeEnabled && Date.now()-profileReceived<8000?profileCache[selectedPlayer]:null;
     box.textContent=player.name+' · '+(player.profileId?'PokerNow ID':'Только ник — личность не подтверждена')+'\n'+
       (profile?`${profile.hands} рук${profile.hands<50?' · малая выборка':''}\nРанее: ${(profile.aliases||[]).filter(n=>n!==player.name).join(', ')||'—'}\nЗаметка: ${profile.note||'—'}\nИзменить заметку можно в Windows-приложении.`:'Нет свежей связи с профилем в Windows-приложении.');
+    if(profile){const op=profile.opportunities||{};box.textContent+='\nВозможностей 3-bet: '+(op.threebet||0)+' · против 3-bet: '+(op.f3bet||0)+' · postflop-коллов для AF: '+(op.post_call||0);}
+    el('tableProfileDetail').textContent=box.textContent;
+  }
+  function renderTablePlayers(){
+    if(!current)return;
+    const fresh=bridgeEnabled && lastBridgeOK>0 && Date.now()-profileReceived<8000;
+    const all=current.players||[], seen=new Set();
+    let players=all.filter(p=>{const key=p.profileId?'p:'+p.profileId:'n:'+p.name.toLowerCase();if(seen.has(key))return false;seen.add(key);return true;});
+    if(el('playersInHand').checked)players=players.filter(p=>!p.folded&&!/away|offline|in next hand|sitting out/i.test(p.status||''));
+    const profile=p=>fresh?profileCache[p.profileId?'p:'+p.profileId:'n:'+p.name.toLowerCase()]:null;
+    const sort=el('playersSort').value;
+    if(sort==='name')players.sort((a,b)=>a.name.localeCompare(b.name));
+    else if(sort==='hands'||sort==='vpip')players.sort((a,b)=>(profile(b)?.[sort]??-1)-(profile(a)?.[sort]??-1));
+    setText('tableStatsMessage',players.length+' за столом'+(fresh?' · статистика из Windows':bridgeEnabled?' · нет свежего ответа Windows':' · включи передачу данных для статистики'));
+    const body=el('activeStatsBody'),used=new Set();
+    const pct=v=>v==null?'—':v+'%';
+    let rowIndex=0;
+    for(const p of players){
+      const key=p.profileId?'p:'+p.profileId:'n:'+p.name.toLowerCase();used.add(key);
+      let row=[...body.children].find(n=>n.dataset.player===key);
+      if(!row){row=document.createElement('tr');row.dataset.player=key;for(let i=0;i<8;i++)row.appendChild(document.createElement('td'));
+        const button=document.createElement('button');button.onclick=()=>{selectedPlayer=key;renderProfile();renderTablePlayers();};row.children[0].append(button);body.append(row);}
+      const st=profile(p),h=st?.hands;
+      row.classList.toggle('selected',selectedPlayer===key);
+      row.children[0].firstChild.textContent=p.name+(p.isMe?' ★':'');row.children[0].firstChild.title=p.name+' · открыть профиль';
+      const values=[h==null?'—':h+(h<50?' ⚠':''),pct(st?.vpip),pct(st?.pfr),pct(st?.threebet),pct(st?.f3bet),st?.af??'—',p.status||(p.folded?'Fold':'За столом')];
+      values.forEach((v,i)=>row.children[i+1].textContent=String(v));
+      row.children[1].title=h==null?'Нет связи со статистикой':h===0?'Нет импортированных рук':h<50?'Малая выборка':'Количество импортированных рук';
+      row.children[4].title='Возможностей 3-bet: '+(st?.opportunities?.threebet??'—');row.children[5].title='Возможностей против 3-bet: '+(st?.opportunities?.f3bet??'—');
+      if(body.children[rowIndex]!==row)body.insertBefore(row,body.children[rowIndex]||null);
+      rowIndex++;
+    }
+    [...body.children].forEach(row=>{if(!used.has(row.dataset.player))row.remove();});
+    if(selectedPlayer&&!used.has(selectedPlayer)){el('tableProfileDetail').hidden=true;}
   }
   function sendBridge(raw){
     if (!bridgeEnabled || !/^[a-f0-9]{24}$/.test(pairingCode)) return;
@@ -531,7 +597,7 @@
       bridgeMessage=err?'Ошибка расширения: '+err.message:
         reply?.ok?'● Связь с Windows · '+new Date().toLocaleTimeString():
         'Нет связи: '+(reply?.error||'запусти приложение');
-      setText('bridgeStatus',bridgeMessage);renderConnection();renderProfile();
+      setText('bridgeStatus',bridgeMessage);renderConnection();renderProfile();renderTablePlayers();
     });
   }
 
@@ -631,7 +697,7 @@
     sendBridge(raw);
     const v=current;
     renderPreflop(v);renderHistory(v);
-    renderConnection();renderProfile();
+    renderConnection();renderProfile();renderTablePlayers();
     setText('freshness',v.paused||handNotice||'Данные из видимого стола · проверяй ситуацию');
     el('freshness').classList.toggle('warn',!!v.paused);
     setText('stateText',v.paused?'ПАУЗА · '+v.street:v.hero?'LIVE · '+v.street+(v.onTurn?' · ТВОЙ ХОД':''):'Стол открыт · Hero не определён');

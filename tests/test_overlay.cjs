@@ -41,6 +41,11 @@ test('overlay renders preflop advice and stable-ID profile on a fixture table',a
     assert.match(root.getElementById('seats').textContent,/Малая выборка/);
     input('pfScenario','');
     assert.match(root.getElementById('preflopAdvice').textContent,/историю повышений/);
+    root.getElementById('playersTab').click();
+    assert.match(root.getElementById('activeStatsBody').textContent,/30%/);
+    w.chrome.runtime.sendMessage=()=>{}; // Simulate an app that stopped answering.
+    const now=w.Date.now();w.Date.now=()=>now+9000;input('pfPlayers','6');
+    assert.doesNotMatch(root.getElementById('activeStatsBody').textContent,/30%/);
   } finally {dom.window.close();}
 });
 const fixture=()=>{
@@ -123,5 +128,21 @@ test('PLO5 is explicitly unsupported and five hero cards are never truncated to 
  el('diagnosticPrepare').click();const diagnostic=JSON.parse(el('diagnosticPreview').value);
  assert.equal(diagnostic.holeCount,5);assert.equal(diagnostic.variant,'PLO5');assert.equal(diagnostic.players[0].name,'Player 1');
  assert.equal(el('diagnosticSave').hidden,false);
+ }finally{dom.window.close();}
+});
+test('players tab shows current membership only and removes departed players',()=>{
+ const {dom,w,el,root,tick}=fixture();try{
+ el('playersTab').click();assert.equal(el('handView').hidden,true);assert.equal(el('tablePlayersView').hidden,false);
+ assert.equal(el('activeStatsBody').children.length,3);
+ assert.match(el('tableStatsMessage').textContent,/включи передачу/);
+ w.document.querySelector('.table-player-1').remove();tick();
+ assert.equal(el('activeStatsBody').children.length,2);
+ assert.equal(root.querySelector('[data-player="p:id1"]'),null);
+ w.document.querySelector('.table-player-2').classList.add('folded');tick();
+ assert.equal(el('activeStatsBody').children.length,2);
+ el('playersInHand').checked=true;el('playersInHand').dispatchEvent(new w.Event('change'));
+ assert.equal(el('activeStatsBody').children.length,1);
+ el('playersTab').dispatchEvent(new w.KeyboardEvent('keydown',{key:'ArrowLeft',bubbles:true}));
+ assert.equal(el('handView').hidden,false);
  }finally{dom.window.close();}
 });

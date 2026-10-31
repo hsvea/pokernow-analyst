@@ -7,6 +7,7 @@ import secrets
 import sqlite3
 import sys
 import threading
+import time
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -25,6 +26,7 @@ from release_config import VERSION
 from update_ui import UpdateUI
 from updater import AppLock
 from profiles import remember, details, snapshot_profiles
+from table_players_ui import TablePlayersTab
 
 PORT = 8765
 APP_DIR = Path(os.environ.get('APPDATA', str(Path.home()))) / 'PokerNowAnalyst'
@@ -108,6 +110,8 @@ class Analyst(tk.Tk):
         self.server = None
         self.history = {}
         self.live = None
+        self.live_received = None
+        self.db_path = DB_PATH
         self.observation_state = {}
         self.current_selected = None
         self._notes_loaded_for = None
@@ -183,6 +187,9 @@ class Analyst(tk.Tk):
         setup = ttk.Frame(notebook)
         gto_tab = ttk.Frame(notebook)
         notebook.add(dashboard, text='Игроки и статистика')
+        self.dashboard_tab = dashboard
+        self.table_players_tab = TablePlayersTab(notebook, self)
+        notebook.add(self.table_players_tab, text='Игроки за столом')
         notebook.add(gto_tab, text='GTO · River MiniSolver')
         pf_tab = ttk.Frame(notebook)
         notebook.add(pf_tab, text='Postflop · CFR+ 3–5 карт')
@@ -623,10 +630,12 @@ class Analyst(tk.Tk):
             n = len(self.live.get('players', []))
             self.status_var.set(f'● LIVE · стол {room[:15]} · {n} игроков · обновлено {datetime.now().strftime("%H:%M:%S")}')
             self.refresh_table()
+        self.table_players_tab.refresh()
         self.after(400, self.poll)
 
     def consume_snapshot(self, snap):
         self.live = snap
+        self.live_received = time.monotonic()
         room = snap['tableId']
         street = str(snap.get('street', '?')).lower()
         stamp = datetime.now().strftime('%H:%M:%S')
