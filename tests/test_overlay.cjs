@@ -220,6 +220,29 @@ test('ordinary preflop without LOG or big-blind text produces advice and compact
  assert.match(el('situation').textContent,/Лимперов: 1/);
  assert.match(el('decisionAction').textContent,/RAISE/);
  w.document.querySelector('.table-player-1 .bet-value').textContent='6';tick();
- assert.match(el('decisionReason').textContent,/число повышений неизвестно/);
+ assert.match(el('decisionAction').textContent,/3-BET/);
+ assert.match(el('situation').textContent,/наблюдал по ставкам/);
+ }finally{dom.window.close();}
+});
+
+test('flop turn and river decisions stay visible in compact mode and clear on new hand',()=>{
+ const {dom,w,el,tick}=fixture();try{
+ w.document.body.insertAdjacentHTML('beforeend','<div class="action-buttons"><button>Check</button></div><div class="table-pot-size">total 12</div>');
+ const cards=['2','3','4','5','6'];
+ for(const [n,label] of [[3,'ФЛОП'],[4,'ТЁРН'],[5,'РИВЕР']]){
+  w.document.querySelector('.table-cards').innerHTML=cards.slice(0,n).map(value=>'<div class="card-container"><span class="value">'+value+'</span><span class="suit">d</span></div>').join('');tick();
+  assert.equal(el('postflopDecision').hidden,false);assert.equal(el('postflopDecision').closest('#analytics'),null);
+  assert.equal(el('postflopStreet').textContent,label);assert.equal(el('postflopAction').textContent,'CHECK');
+ }
+ w.document.querySelector('.table-cards').innerHTML='';tick();assert.equal(el('postflopDecision').hidden,true);
+ }finally{dom.window.close();}
+});
+test('observed re-raise changes the automatic scenario without LOG',()=>{
+ const {dom,w,el,tick}=fixture();try{
+ const bet=(seat,value)=>{w.document.querySelector('.table-player-'+seat+' .bet-value').textContent=value;tick();};
+ bet(1,'6');assert.match(el('situation').textContent,/До тебя: Рейз/);
+ bet(2,'18');assert.match(el('situation').textContent,/До тебя: 3-бет/);assert.match(el('decisionAction').textContent,/4-BET/);
+ bet(0,'40');assert.match(el('situation').textContent,/До тебя: 4-бет/);assert.equal(el('decisionAction').textContent,'Ставка внесена');
+ assert.match(el('historySummary').textContent,/6.*18.*40/);
  }finally{dom.window.close();}
 });

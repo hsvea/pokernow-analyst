@@ -83,7 +83,57 @@
     return {hand:h.label, action, target, call, stackBB:depth, reason,
       caveat:'Эвристика, не GTO и не гарантия выигрыша. Не учитывает рейк, анте и точные диапазоны соперников.'};
   }
-  const api={hand,positions,inferPosition,unraisedSituation,recommend};
+  function raiseTracker(){
+    let previous=null,anchor=false,blocked='',raises=0,high=0,increment=0,limpers=0,targets=[];
+    const key=p=>p.profileId||('seat:'+p.seat);
+    const close=(a,b)=>Math.abs(a-b)<.001;
+    function clear(){anchor=false;blocked='';raises=0;high=0;increment=0;limpers=0;targets=[];}
+    return {observe(state,now=Date.now(),visible=true){
+      const players=state.players.filter(p=>!p.waitingNextHand);
+      const next={table:state.table,dealer:state.dealerKey,hand:state.handId,board:state.board.length,bb:state.bb,now,
+        bets:new Map(players.map(p=>[key(p),p.bet]))};
+      const boundary=previous&&(previous.table!==next.table || (previous.dealer&&next.dealer&&previous.dealer!==next.dealer) ||
+        (previous.hand&&next.hand&&previous.hand!==next.hand) || (previous.board>0&&next.board===0));
+      if(boundary)clear();
+      const stop=reason=>({usable:false,reason,raises,targets:[...targets]});
+      if(!visible){clear();previous=null;return stop('Вкладка была скрыта: жду исходные ставки новой раздачи');}
+      if(next.board){clear();previous=next;return stop('Трекер повышений работает на префлопе');}
+      if(!state.holdem){clear();previous=next;return stop('Трекер повышений — только NL Hold’em');}
+      if(!anchor){
+        const initial=unraisedSituation(players,state.hero,state.bb);
+        if(initial){anchor=true;high=state.bb;increment=state.bb;limpers=initial.limpers;blocked='';}
+        previous=next;
+        if(!anchor)return stop('Начало повышений не наблюдалось. Оставь стол открытым до новой раздачи или укажи сценарий этой руки.');
+      }else if(previous&&!boundary){
+        if(now-previous.now>5000 || now<previous.now)blocked='Был перерыв в наблюдении: последовательность повышений не подтверждена';
+        if(!close(state.bb,previous.bb)||!Number.isFinite(state.bb))blocked='Изменился или пропал размер BB';
+        if(previous.bets.size!==next.bets.size||[...next.bets.keys()].some(k=>!previous.bets.has(k)))blocked='Изменился состав раздачи: последовательность ставок неполная';
+        const changes=players.filter(p=>!close(p.bet,previous.bets.get(key(p))));
+        if(changes.some(p=>!Number.isFinite(p.bet)||p.bet<(previous.bets.get(key(p))??0)-.001))blocked='Ставки сбросились до завершения префлопа: жду новую раздачу';
+        const higher=changes.filter(p=>p.bet>high+.001);
+        if(higher.length){
+          if(changes.length!==1)blocked='Несколько ставок изменились одновременно: могло быть пропущено повышение';
+          else if(higher[0].bet-high+.001<increment)blocked='Неполное повышение all-in: нужен отдельный разбор';
+          else if(!blocked){increment=higher[0].bet-high;high=higher[0].bet;raises++;targets.push(high);}
+        }
+        if(!raises){const initial=unraisedSituation(players,state.hero,state.bb);if(initial)limpers=initial.limpers;}
+        previous=next;
+      }
+      if(blocked)return stop(blocked);
+      if(raises>3)return stop('Наблюдалось больше трёх повышений: сценарий вне модели');
+      return {usable:true,scenario:raises?['','raise','3bet','4bet'][raises]:limpers?'limped':'unopened',
+        raises,targets:[...targets],facing:high,limpers,minRaiseTo:high+increment,reason:'Последовательность наблюдалась по ставкам стола'};
+    }};
+  }
+  function postflopDecision({pot,call,equity}){
+    if(!Number.isFinite(call)||call<0||!Number.isFinite(pot)||pot<0)return {action:'Нет цены колла',reason:'Не распознаны банк или сумма колла. Проверь значения стола.'};
+    if(call===0)return {action:'CHECK',reason:'Можно продолжить без доплаты. Для выбора ставки нужны диапазоны и оценка фолд-эквити.'};
+    if(!Number.isFinite(equity)||equity<0||equity>1)return {action:'Считаю equity…',reason:'Ожидаю завершения симуляции против случайных рук.'};
+    const threshold=call/(pot+call),margin=equity-threshold;
+    const action=Math.abs(margin)<.03?'Пограничный колл':margin>0?'CALL · ориентир':'FOLD · ориентир';
+    return {action,threshold,reason:'Equity '+(equity*100).toFixed(1)+'% против случайных рук; порог колла '+(threshold*100).toFixed(1)+'%. '+(Math.abs(margin)<.03?'Разница меньше 3 п.п.; слабое основание для решения.':'Реальный диапазон ставки соперника может изменить вывод.')+' Без рейка и будущих ставок.'};
+  }
+  const api={hand,positions,inferPosition,unraisedSituation,raiseTracker,postflopDecision,recommend};
   if(typeof module!=='undefined'&&module.exports) module.exports=api;
   else root.PokerNowPreflop=api;
 })(globalThis);

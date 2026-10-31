@@ -37,8 +37,9 @@
   let scale = Math.max(.8, Math.min(1.2, Number(settings.scale) || 1));
   let compact = settings.compact !== false;
   let activeView = settings.activeView==='players'?'players':'hand';
-  const overlayVersion='15.0.2'; // Version of this loaded script, even after an extension update.
+  const overlayVersion='15.1.0'; // Version of this loaded script, even after an extension update.
   const handCollector=globalThis.PokerNowHistory.collector();
+  const raiseTracker=globalThis.PokerNowPreflop.raiseTracker();
   const tableRecorder=globalThis.PokerNowTableCapture.recorder(Date.now().toString(36)+'-'+Math.random().toString(36).slice(2));
   let captureResult=null;
   let tableCaptureSupported=null;
@@ -138,14 +139,17 @@
     observedBB=null;
     const blindText=getText($('.table-blinds, .blind-value, .blinds'));
     const blindMatch=blindText.match(/(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)/);
-    if(blindPoster) observedBB=blindPoster.bet;
-    else if(blindMatch && Number(blindMatch[2])>0) observedBB=Number(blindMatch[2]);
+    if(blindMatch && Number(blindMatch[2])>0) observedBB=Number(blindMatch[2]);
     const pot = readPot();
     const opponents = Math.max(1,players.filter(x=>x!==hero&&!x.folded).length);
     const hand = [hole,...board].map(x=>Array.isArray(x)?x.join(','):x).join('|');
     const duplicateCards = new Set([...hole,...board]).size !== [...hole,...board].length;
     const handId=getText($('.hand-number, .current-hand-number')) || $('.table-container[data-hand-id]')?.getAttribute('data-hand-id') || '';
     const dealer=players.find(p=>p.dealer);
+    const dealerKey=dealer?(dealer.profileId||dealer.name):'';
+    const sameHand=previousRaw && previousRaw.table===location.pathname && previousRaw.dealerKey===dealerKey && previousRaw.handId===handId && !(previousRaw.board.length && !board.length);
+    if(observedBB===null && blindPoster && sameHand && previousRaw.bb>0)observedBB=previousRaw.bb;
+    if(observedBB===null && blindPoster)observedBB=blindPoster.bet;
     return {players,hero,hole,board,pot,opponents,...actions,hand,duplicateCards,bb:observedBB,variant,holdem,
       table:location.pathname,handId,dealerKey:dealer?(dealer.profileId||dealer.name):'',
       street: board.length===0?'PREFLOP':board.length===3?'FLOP':board.length===4?'TURN':board.length===5?'RIVER':'РАЗДАЧА'};
@@ -260,6 +264,10 @@
           <button id="pfReset">Сбросить ситуацию</button>
           <div class="muted">* Остаток эффективного стека. Историю рейзов нельзя надёжно восстановить по одной сумме: при повышении выбери её вручную. Проверяй BB и позицию. Эвристика, не GTO.</div>
         </details>
+      </section>
+      <section id="postflopDecision" class="decision" aria-live="polite" hidden>
+        <div id="postflopStreet"></div><strong id="postflopAction" style="display:block;font-size:23px;color:#76f0c8;margin:5px 0"></strong>
+        <div id="postflopReason"></div><div class="small subtle">Ориентир по equity против случайных рук · не GTO и не оценка диапазона соперника</div>
       </section>
       <div id="equitySummary" class="small" role="status"></div>
       <div class="small subtle">Equity — доля банка против случайных рук, не точный шанс против диапазона соперника. Порог колла — цена колла / итоговый банк.</div>
@@ -498,6 +506,13 @@
   }
   function renderAdvice(v){
     const box=el('advice');box.className='insight';
+    el('postflopDecision').hidden=![3,4,5].includes(v.board.length);
+    if(!el('postflopDecision').hidden){
+      setText('postflopStreet',({3:'ФЛОП',4:'ТЁРН',5:'РИВЕР'})[v.board.length]);
+      const pause=v.paused || (v.duplicateCards||v.hole.length!==2?'Нужны две корректные карты Hero и борд':'');
+      const result=pause?{action:'Пауза',reason:pause}:globalThis.PokerNowPreflop.postflopDecision({pot:v.pot,call:v.call,equity:lastEquity});
+      setText('postflopAction',result.action);setText('postflopReason',result.reason);
+    }
     const p=v.pot, c=v.call;
     const validPot=Number.isFinite(p)&&p>=0, validCall=Number.isFinite(c)&&c>=0;
     const odds=validPot&&validCall&&p+c>0 ? c/(p+c):null;
@@ -669,6 +684,7 @@
     const pf=globalThis.PokerNowPreflop;
     const value=(id,auto)=>el(id).value.trim()===''?auto:Number(el(id).value);
     const history=v.history?.usable?v.history:null;
+    const tracked=v.raiseHistory?.usable?v.raiseHistory:null;
     const hero=v.hero, bb=value('pfBB',history?.bb??v.bb), count=value('pfPlayers',v.players.filter(p=>!p.waitingNextHand).length);
     const position=el('pfPosition').value||pf.inferPosition(v.players,hero);
     const own=value('pfOwn',history?.heroBet??hero?.bet??0);
@@ -679,7 +695,8 @@
     const stack=value('pfStack',autoStack);
     const bigBlind=v.players.find(p=>/big blind/i.test(p.status)||pf.inferPosition(v.players,p)==='BB');
     const limpers=value('pfLimpers',history?.limpers??(bigBlind&&bb?v.players.filter(p=>!p.isMe&&!p.folded&&p!==bigBlind&&p.bet===bb).length:null));
-    let scenario=el('pfScenario').value||history?.scenario;
+    const automaticRaises=!history&&tracked&&['pfBB','pfFacing','pfOwn'].every(id=>el(id).value==='')?tracked:null;
+    let scenario=el('pfScenario').value||history?.scenario||automaticRaises?.scenario;
     if(!scenario && !v.logSource?.rows.length && bb && facing<=bb)scenario=pf.unraisedSituation(v.players,hero,bb)?.scenario;
     const labels={unopened:'Без рейза',limped:'Лимперы',raise:'Рейз','3bet':'3-бет','4bet':'4-бет'};
     const facts=[['BB',bb,'pfBB'],['Позиция',position,'pfPosition'],['Игроков',count,'pfPlayers'],['Эфф. остаток',stack,'pfStack'],['Ставка до',facing,'pfFacing'],['Уже внесено',own,'pfOwn'],['До тебя',labels[scenario]||null,'pfScenario'],['Лимперов',history?limpers:scenario==='unopened'?0:scenario==='limped'?limpers:null,'pfLimpers']];
@@ -688,7 +705,7 @@
       const fact=document.createElement('div'), manual=el(id).value!=='';
       const fromHistory=history&&['pfBB','pfOwn','pfFacing','pfLimpers','pfScenario'].includes(id);
       fact.className='fact'+(val==null?' missing':manual?' manual':'');
-      fact.textContent=label+': '+(val??'неизвестно')+'\n'+(manual?'вручную':val==null?'нужно уточнить':id==='pfPosition'?'по фишке дилера':fromHistory?'из журнала · сверено':'из видимого стола');
+      fact.textContent=label+': '+(val??'неизвестно')+'\n'+(manual?'вручную':val==null?'нужно уточнить':id==='pfPosition'?'по фишке дилера':fromHistory?'из журнала · сверено':automaticRaises&&id==='pfScenario'?'наблюдал по ставкам':'из видимого стола');
       container.append(fact);
     }
     setText('decisionContext',[v.hole.join(' '),position||'позиция ?',bb&&stack!=null?(stack/bb).toFixed(1)+' BB остаток':'стек ?'].join(' · '));
@@ -700,8 +717,10 @@
       if(!bb || bb<=0)throw new Error('Укажи BB в параметрах префлопа');
       if(scenario==='limped' && limpers===null)throw new Error('Укажи число лимперов');
       if(stack==null)throw new Error('Укажи эффективный остаток стека');
-      if(!scenario)throw new Error(facing>bb?'Виден рейз, но число повышений неизвестно. Выбери «Рейз / 3-бет / 4-бет» в параметрах или открой LOG.':'Не удалось подтвердить блайнды и предыдущие действия. Проверь позицию BB и ставки.');
-      const r=pf.recommend({cards:v.hole,players:count,position,bb,stack,totalBet:facing,heroBet:own,scenario,limpers:scenario==='limped'?limpers:0,minRaiseTo:history && ['pfBB','pfFacing','pfScenario','pfOwn'].every(id=>el(id).value==='')?history.minRaiseTo:undefined});
+      if(!scenario)throw new Error(facing>bb?(v.raiseHistory?.usable?'Ручная ставка: число повышений неизвестно. Укажи сценарий для введённой суммы.':v.raiseHistory?.reason||'Начало повышений не наблюдалось'):'Не удалось подтвердить блайнды и предыдущие действия. Проверь позицию BB и ставки.');
+      if(automaticRaises?.raises && !el('pfScenario').value && own>=facing){setText('decisionAction','Ставка внесена');setText('decisionReason','Жду следующего действия соперников или смены улицы.');return;}
+      const minimumSource=history||automaticRaises;
+      const r=pf.recommend({cards:v.hole,players:count,position,bb,stack,totalBet:facing,heroBet:own,scenario,limpers:scenario==='limped'?limpers:0,minRaiseTo:minimumSource && ['pfBB','pfFacing','pfScenario','pfOwn'].every(id=>el(id).value==='')?minimumSource.minRaiseTo:undefined});
       setText('decisionAction',r.action+(r.target!==null?' до '+money(r.target):r.action==='CALL'?' '+money(r.call):''));
       setText('decisionReason',r.reason);
     }catch(err){setText('decisionAction','Нужно уточнить');setText('decisionReason',err.message+' · параметры ниже');}
@@ -709,6 +728,13 @@
 
   function renderHistory(v){
     const h=v.history;
+    if(!h?.usable && v.raiseHistory?.usable){
+      const r=v.raiseHistory;
+      setText('historyToggle','Ставки стола · повышений: '+r.raises);
+      setText('historyStatus',r.reason);
+      setText('historySummary',r.targets.length?'Повышения до: '+r.targets.map(money).join(' → '):'Повышений пока нет');
+      el('historyEvents').replaceChildren();return;
+    }
     setText('historyToggle',h?.usable?'История · начало видно, сверено':h?.status==='postflop'?'История · постфлоп':'История · нужна проверка');
     setText('historyStatus',h?.reason||'Открой LOG / LEDGER');
     setText('historySummary',h?.usable?'Повышений: '+h.raises+' · лимперов: '+h.limpers+' · колл: '+money(h.call)+(h.opener?' · открылся: '+h.opener.name+' ('+(globalThis.PokerNowPreflop.inferPosition(v.players,v.players.find(p=>p.profileId===h.opener.profileId))||'позиция ?')+')':''):'');
@@ -727,6 +753,7 @@
     raw.history=globalThis.PokerNowHistory.analyze(raw.logSource,raw);
     if(!raw.handId && raw.logSource.current)raw.handId=raw.history.handId||'';
     trackHand(raw);
+    raw.raiseHistory=raiseTracker.observe(raw,Date.now(),!document.hidden);
     if(bridgeEnabled&&!document.hidden)tableRecorder.observe(raw);else tableRecorder.pause();
     current=getEffective(raw);
     sendBridge(raw);

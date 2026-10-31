@@ -44,3 +44,42 @@ test('unraised table identifies BB by seat without status labels',()=>{
  p[0].bet=6;assert.equal(pf.unraisedSituation(p,p[3],2),null);
  p[0].bet=0;p[2].bet=0;assert.equal(pf.unraisedSituation(p,p[3],2),null);
 });
+
+const raiseState=()=>{const players=[{profileId:'a',seat:0,dealer:true,bet:0},{profileId:'b',seat:1,bet:1},{profileId:'c',seat:2,bet:2}];return {table:'one',dealerKey:'a',handId:'',board:[],bb:2,holdem:true,players,hero:players[0]};};
+test('visible sequential raises, calls and repeated scans reconstruct raise/3bet/4bet',()=>{
+ const t=pf.raiseTracker(),s=raiseState();assert.equal(t.observe(s,0).scenario,'unopened');
+ s.players[1].bet=6;let r=t.observe(s,100);assert.equal(r.scenario,'raise');assert.equal(r.minRaiseTo,10);
+ assert.equal(t.observe(s,200).raises,1);
+ s.players[2].bet=6;assert.equal(t.observe(s,300).raises,1);
+ s.players[0].bet=18;r=t.observe(s,400);assert.equal(r.scenario,'3bet');assert.equal(r.minRaiseTo,30);
+ s.players[1].bet=40;r=t.observe(s,500);assert.equal(r.scenario,'4bet');assert.deepEqual(r.targets,[6,18,40]);
+ s.players[2].bet=80;assert.equal(t.observe(s,600).usable,false);
+});
+test('joining after raise requires an observed unraised baseline; new hand recovers',()=>{
+ const t=pf.raiseTracker(),s=raiseState();s.players[1].bet=6;
+ assert.equal(t.observe(s,0).usable,false);s.players[0].bet=18;assert.equal(t.observe(s,100).usable,false);
+ s.dealerKey='b';s.players[0].bet=0;s.players[1].bet=1;assert.equal(t.observe(s,200).usable,true);
+});
+test('multiple changed bets, gaps, hidden tab and short raises do not invent history',()=>{
+ for(const mutate of [s=>{s.players[0].bet=6;s.players[1].bet=18;},s=>{s.players[1].bet=3;},s=>{s.players.pop();},s=>{s.players[2].bet=0;}]){
+  const t=pf.raiseTracker(),s=raiseState();t.observe(s,0);mutate(s);assert.equal(t.observe(s,100).usable,false);
+ }
+ const t=pf.raiseTracker(),s=raiseState();t.observe(s,0);s.players[1].bet=6;assert.equal(t.observe(s,6000).usable,false);
+ t.observe(s,6100,false);assert.equal(t.observe(s,6200).usable,false);
+});
+test('table switch and postflop discard the previous raise chain',()=>{
+ const t=pf.raiseTracker(),s=raiseState();t.observe(s,0);s.players[1].bet=6;t.observe(s,100);
+ s.table='two';assert.equal(t.observe(s,200).usable,false);
+ s.board=['As','Kd','2h'];assert.equal(t.observe(s,300).usable,false);
+ s.board=[];s.players[1].bet=1;assert.equal(t.observe(s,400).raises,0);
+});
+
+test('postflop price comparison is explicit about its random-range assumption',()=>{
+ assert.equal(pf.postflopDecision({pot:100,call:0,equity:null}).action,'CHECK');
+ assert.equal(pf.postflopDecision({pot:100,call:50,equity:.5}).action,'CALL · ориентир');
+ assert.equal(pf.postflopDecision({pot:100,call:50,equity:.1}).action,'FOLD · ориентир');
+ assert.equal(pf.postflopDecision({pot:100,call:50,equity:.34}).action,'Пограничный колл');
+ assert.equal(pf.postflopDecision({pot:null,call:10,equity:.9}).action,'Нет цены колла');
+ assert.equal(pf.postflopDecision({pot:100,call:10,equity:null}).action,'Считаю equity…');
+ assert.match(pf.postflopDecision({pot:100,call:50,equity:.5}).reason,/случайных рук/);
+});
