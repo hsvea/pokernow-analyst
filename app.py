@@ -4,6 +4,8 @@ import webbrowser
 import os
 import queue
 import secrets
+import sqlite3
+import sys
 import threading
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -22,6 +24,7 @@ from codex_review import review_with_codex, start_chatgpt_login
 from release_config import VERSION
 from update_ui import UpdateUI
 from updater import AppLock
+from profiles import remember, details, snapshot_profiles
 
 PORT = 8765
 APP_DIR = Path(os.environ.get('APPDATA', str(Path.home()))) / 'PokerNowAnalyst'
@@ -41,7 +44,7 @@ def config_load():
     return saved
 
 
-def make_handler(token, events):
+def make_handler(token, events, db_path=DB_PATH):
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *_args):
             pass
@@ -57,7 +60,7 @@ def make_handler(token, events):
 
         def do_GET(self):
             if self.path == '/health':
-                self.respond(200, {'ok': True, 'app': 'PokerNow Analyst', 'port': PORT})
+                self.respond(200, {'ok': True, 'app': 'PokerNow Analyst', 'port': PORT, 'version': VERSION})
             else:
                 self.respond(404, {'error': 'not found'})
 
@@ -78,10 +81,17 @@ def make_handler(token, events):
                     raise ValueError('Invalid snapshot')
                 if not isinstance(data.get('tableId'), str) or len(data['tableId']) > 120:
                     raise ValueError('Invalid table ID')
+                for player in data['players']:
+                    if (not isinstance(player,dict) or not isinstance(player.get('name'),str)
+                            or len(player['name']) > 90 or not isinstance(player.get('profileId',''),str)
+                            or len(player.get('profileId','')) > 100):
+                        raise ValueError('Invalid player')
                 events.put(('snapshot', data))
-                self.respond(200, {'ok': True})
+                self.respond(200, {'ok': True, 'version': VERSION, 'profiles':snapshot_profiles(db_path,data['players'])})
             except (ValueError, TypeError, json.JSONDecodeError) as e:
                 self.respond(400, {'error': str(e)})
+            except sqlite3.Error:
+                self.respond(503, {'error': 'Local database is busy; retry later'})
     return Handler
 
 
@@ -539,6 +549,11 @@ class Analyst(tk.Tk):
         result = player_report(st)
         if not st:
             return result
+        profile = details(self.db, st['key'])
+        result += '\n\nПривязка: ' + profile['identity'] + ' · ' + st['key']
+        result += '\nИстория ников: ' + (', '.join(profile['aliases']) or '—')
+        if not st['key'].startswith('p:'):
+            result += '\nБез PokerNow ID привязка только по нику; одноимённые игроки могут совпадать.'
         rows = self.db.execute('SELECT status FROM observations WHERE player=?', (st['key'],)).fetchall()
         counts = {'call':0,'raise':0,'bet':0,'fold':0,'check':0}
         for (text,) in rows:
@@ -599,6 +614,8 @@ class Analyst(tk.Tk):
                 self.multistreet_tab.show_benchmark(data)
             elif kind == 'multistreet_v8_benchmark_ready':
                 self.multistreet_tab.show_v8_benchmark(data)
+            elif kind == 'multistreet_v9_ready':
+                self.multistreet_tab.show_v9(data)
             elif kind == 'quality_ready':
                 self.quality_tab.show_result(data)
         if changed:
@@ -619,6 +636,7 @@ class Analyst(tk.Tk):
                 continue
             pid = str(p.get('profileId', ''))[:100]
             key = 'p:' + pid if pid else 'n:' + name.lower()
+            remember(self.db, key, name)
             status = str(p.get('status', '')).strip()[:100]
             bet = p.get('bet')
             try:
@@ -794,6 +812,14 @@ class Analyst(tk.Tk):
 
 
 if __name__ == '__main__':
+    if len(sys.argv)==3 and sys.argv[1]=='--self-test':
+        import subprocess
+        from openai_codex import Codex, Sandbox
+        from codex_cli_bin import bundled_codex_path
+        result=subprocess.run([str(bundled_codex_path()),'--version'],capture_output=True,text=True,
+                              check=True,timeout=30,creationflags=0x08000000 if os.name=='nt' else 0)
+        Path(sys.argv[2]).write_text(json.dumps({'version':VERSION,'codex_runtime':result.stdout.strip()}),encoding='utf-8')
+        sys.exit(0)
     lock = None
     try:
         if os.name == 'nt':

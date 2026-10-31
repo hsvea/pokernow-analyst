@@ -12,6 +12,7 @@ from gto_solver import cards, completed_river_boards
 from multistreet_solver import solve_multistreet, parse_street_sizes, audit_saved_multistreet
 from benchmark_training import run_benchmark
 from benchmark_v8 import compare_private_sampling
+from benchmark_v9 import compare_coverage
 
 
 class MultiStreetTab(ttk.Frame):
@@ -70,7 +71,7 @@ class MultiStreetTab(ttk.Frame):
         for name,var,values,width in [
             ('Усреднение CFR+',self.averaging,('linear','uniform'),12),
             ('Выбор будущих карт',self.chance_sampling,('stratified','random'),14),
-            ('Пары рук',self.private_sampling,('systematic','random','paired'),13),
+            ('Пары рук',self.private_sampling,('systematic','balanced','random','paired'),13),
             ('Ривер: перебор рук',self.exact_river,('auto','never','always'),12),
         ]:
             frame=ttk.Frame(config);frame.pack(side='left',padx=(0,16))
@@ -90,6 +91,8 @@ class MultiStreetTab(ttk.Frame):
         ttk.Button(tools,text='Борд из завершённой CSV',command=self.load_completed_board).pack(side='left',padx=10)
         ttk.Button(tools,text='Объяснить результат через AI',command=self.explain).pack(side='right')
         ttk.Button(tools,text='Экспорт JSON',command=self.export_json).pack(side='right',padx=(0,8))
+        self.coverage_button=ttk.Button(self,text='Покрытие v8 / v9',command=self.benchmark_v9)
+        self.coverage_button.pack(anchor='w',pady=4)
         self.status=tk.StringVar(value='Расчёт автономен: не читает текущие игровые кнопки и не управляет столом.')
         tk.Label(self,textvariable=self.status,bg='#0c1420',fg='#a6cfda',anchor='w',justify='left',
                  wraplength=1260,font=('Segoe UI',10)).pack(fill='x',pady=(0,9))
@@ -171,6 +174,11 @@ class MultiStreetTab(ttk.Frame):
                   result.metadata['br_b_exact'],result.metadata['missing_eval_infosets']))
                  if result.metadata['nashconv'] is not None else
                  'Многоуличный NashConv ещё не измерен. Нажми «Аудит NashConv · всё дерево» для небольшой задачи.',
+                '', 'Покрытие приватных пар: ' + str(result.metadata['pair_coverage']['visited']) + '/' + str(result.pairs),
+                'Покрытый вес диапазона: %.2f%%; ESS по весам: %.1f (%.1f%% миров).' % (
+                    result.metadata['pair_coverage']['target_mass_pct'], result.metadata['pair_coverage']['ess'],
+                    result.metadata['pair_coverage']['ess_pct']),
+                'Покрытие и ESS не доказывают равновесие; balanced не гарантирует улучшения NashConv.',
                 '', 'Информационные узлы по улицам:']
         for street in ('F','T','R'):
             if street in result.public_nodes:
@@ -204,6 +212,34 @@ class MultiStreetTab(ttk.Frame):
             'responses':result.flop_b_responses,'posterior_after_bet_call':result.posterior,
             'sequential_range_updates':result.example_path,
             'node_counts':result.public_nodes,'limitations':result.metadata}
+
+    def benchmark_v9(self):
+        if self.last is None or self.last_args is None:
+            messagebox.showinfo('Покрытие', 'Сначала выполни расчёт.')
+            return
+        last, args = self.last, dict(self.last_args)
+        self.coverage_button.configure(state='disabled')
+        self.status.set('Сравнение покрытия systematic / balanced, одинаковое число миров…')
+        def work():
+            try:
+                payload = (last, compare_coverage(args, iterations=min(650,last.iterations)), None)
+            except Exception as exc:
+                payload = (last, None, str(exc))
+            self.app.events.put(('multistreet_v9_ready', payload))
+        threading.Thread(target=work,daemon=True).start()
+
+    def show_v9(self, payload):
+        last, report, error = payload
+        self.coverage_button.configure(state='normal')
+        if error:
+            self.status.set(error)
+        elif last is self.last:
+            self.last.metadata['v9_coverage_comparison'] = report
+            lines = ['\nПОКРЫТИЕ v8 / v9 (не оценка равновесия)']
+            for r in report['results']:
+                lines.append(f"{r['mode']} seed={r['seed']}: {r['visited']}/{r['eligible']} пар, вес {r['target_mass_pct']:.2f}%, ESS {r['ess_pct']:.1f}%, миров {r['world_updates']}")
+            self.app.set_text(self.report,self.report.get('1.0','end-1c')+'\n'.join(lines))
+            self.status.set('Сравнение покрытия сохранено в JSON результата.')
 
     def benchmark_v8(self):
         if self.last is None or self.last_args is None:

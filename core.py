@@ -8,6 +8,7 @@ import time
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
+from profiles import migrate, remember
 
 START = re.compile(r'--\s*starting hand\s*#(\d+)', re.I)
 END = re.compile(r'--\s*ending hand\s*#(\d+)', re.I)
@@ -170,9 +171,11 @@ def connect(db_path):
     CREATE TABLE IF NOT EXISTS observations (id INTEGER PRIMARY KEY AUTOINCREMENT,room TEXT,player TEXT,name TEXT,
        street TEXT,status TEXT,bet REAL,ts TEXT);
     CREATE INDEX IF NOT EXISTS idx_obs_player ON observations(player);
+    CREATE INDEX IF NOT EXISTS idx_samples_player ON samples(player);
     CREATE TABLE IF NOT EXISTS notes (player TEXT PRIMARY KEY, note TEXT NOT NULL);
     ''')
     conn.commit()
+    migrate(conn)
     return conn
 
 
@@ -191,6 +194,7 @@ def import_text(conn, content, room):
                 (hand['id'], room, hand['number'], hand['timestamp'], 1,
                  json.dumps(hand, ensure_ascii=False)))
             for player, data in summarize_hand(hand).items():
+                remember(conn, player, data['name'])
                 participants.add(player)
                 conn.execute('INSERT INTO samples VALUES (?,?,?,?)',
                     (hand['id'], player, data['name'], json.dumps(data)))
@@ -210,6 +214,9 @@ def stats_table(conn):
         d = json.loads(data)
         for k in FIELDS:
             st[k] += d.get(k, 0)
+    for key,name in conn.execute('SELECT player,current_name FROM player_profiles'):
+        st = stats.setdefault(key, {'key':key, 'name':name, **{k:0 for k in FIELDS}})
+        st['name'] = name
     return sorted(stats.values(), key=lambda r: (-r['hands'], r['name'].lower()))
 
 

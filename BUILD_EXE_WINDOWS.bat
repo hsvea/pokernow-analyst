@@ -8,7 +8,7 @@ if NOT %ERRORLEVEL% EQU 0 (
   exit /b 1
 )
 echo Installing PyInstaller locally for EXE creation...
-py -3 -m pip install pyinstaller==6.16.0
+py -3 -m pip install pyinstaller==6.16.0 openai-codex==0.163.0
 if ERRORLEVEL 1 (
   echo Could not install PyInstaller.
   pause

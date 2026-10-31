@@ -16,7 +16,20 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
     body:JSON.stringify(snapshot), cache:'no-store', signal:AbortSignal.timeout(2700)
   }).then(async r => {
     if (!r.ok) throw new Error('HTTP '+r.status);
-    respond({ok:true});
+    const data=await r.json();
+    const current=chrome.runtime.getManifest().version;
+    if(data.version && data.version!==current){
+      try{
+        const disk=await fetch(chrome.runtime.getURL('manifest.json'),{cache:'no-store'}).then(r=>r.json());
+        const stored=await chrome.storage.local.get('lastReloadVersion');
+        if(disk.version===data.version && stored.lastReloadVersion!==data.version){
+          await chrome.storage.local.set({lastReloadVersion:data.version});
+          data.extensionReloaded=true;
+          setTimeout(()=>chrome.runtime.reload(),750);
+        }
+      }catch(_){ /* Manual Reload in Opera remains available. */ }
+    }
+    respond(data);
   }).catch(err => respond({ok:false,error:String(err?.message||err)}));
   return true;
 });

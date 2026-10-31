@@ -1,0 +1,53 @@
+{
+  "scope": "private-pair coverage, not NashConv or proof of equilibrium",
+  "results": [
+    {
+      "seed": 9,
+      "mode": "systematic",
+      "world_updates": 200,
+      "visited": 4,
+      "eligible": 7,
+      "count_pct": 57.142857142857146,
+      "target_mass_pct": 99.92505620784411,
+      "ess": 200.0,
+      "ess_pct": 100.0,
+      "ess_scope": "importance weights; does not measure correlated sample independence or equilibrium"
+    },
+    {
+      "seed": 9,
+      "mode": "balanced",
+      "world_updates": 200,
+      "visited": 7,
+      "eligible": 7,
+      "count_pct": 100.0,
+      "target_mass_pct": 100.0,
+      "ess": 167.23814820894793,
+      "ess_pct": 83.61907410447397,
+      "ess_scope": "importance weights; does not measure correlated sample independence or equilibrium"
+    },
+    {
+      "seed": 21,
+      "mode": "systematic",
+      "world_updates": 200,
+      "visited": 4,
+      "eligible": 7,
+      "count_pct": 57.142857142857146,
+      "target_mass_pct": 99.92505620784411,
+      "ess": 200.0,
+      "ess_pct": 100.0,
+      "ess_scope": "importance weights; does not measure correlated sample independence or equilibrium"
+    },
+    {
+      "seed": 21,
+      "mode": "balanced",
+      "world_updates": 200,
+      "visited": 7,
+      "eligible": 7,
+      "count_pct": 100.0,
+      "target_mass_pct": 100.0,
+      "ess": 168.23092863938203,
+      "ess_pct": 84.11546431969101,
+      "ess_scope": "importance weights; does not measure correlated sample independence or equilibrium"
+    }
+  ]
+}

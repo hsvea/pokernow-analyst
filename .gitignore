@@ -8,3 +8,4 @@ dist/
 config.json
 .test-temp/
 release/
+node_modules/

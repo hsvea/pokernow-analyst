@@ -28,6 +28,16 @@ EPS = 1e-8
 STREETS = {3:'F', 4:'T', 5:'R'}
 
 
+def balanced_distribution(weights):
+    """Proposal q=0.6p+0.4/N and unbiased importance multipliers p/q."""
+    if not weights or any(not math.isfinite(w) or w <= 0 for w in weights):
+        raise ValueError('Positive finite pair weights required')
+    mass = sum(weights)
+    p = [w / mass for w in weights]
+    q = [0.6 * w + 0.4 / len(p) for w in p]
+    return q, [a / b for a, b in zip(p, q)]
+
+
 @dataclass
 class MultiStreetResult:
     board: tuple[str,...]
@@ -114,8 +124,8 @@ def solve_multistreet(board_text: str, pot: float, stack: float,
         raise ValueError('Усреднение: uniform или linear')
     if chance_sampling not in ('random', 'stratified'):
         raise ValueError('Выбор карт: random или stratified')
-    if private_sampling not in ('random', 'systematic', 'paired'):
-        raise ValueError('private_sampling: random, systematic или paired')
+    if private_sampling not in ('random', 'systematic', 'paired', 'balanced'):
+        raise ValueError('private_sampling: random, systematic, paired или balanced')
     if exact_river not in ('auto', 'always', 'never'):
         raise ValueError('Ривер: auto, always или never')
     sizes=parse_street_sizes(flop_sizes,turn_sizes,river_sizes)
@@ -127,8 +137,8 @@ def solve_multistreet(board_text: str, pot: float, stack: float,
         known_next=known_next+tuple(c for c in DECK if c not in set(board+known_next))[:5-len(board)-len(known_next)]
     ar=parse_range(a_range,board)
     br=parse_range(b_range,board)
-    if len(ar)>40 or len(br)>40:
-        raise ValueError('Ограничение v4: максимум 40 комбинаций на игрока (скорость дерева)')
+    if len(ar)>80 or len(br)>80:
+        raise ValueError('Максимум 80 комбинаций на игрока (скорость дерева)')
     ha=list(ar); hb=list(br)
     # Compatible joint distribution: card blockers imply conditional ranges.
     pairs=[]; cumul=[]; mass=0.0
@@ -153,6 +163,12 @@ def solve_multistreet(board_text: str, pot: float, stack: float,
     if use_exact_river and len(pairs)>500:
         raise ValueError('Для точного ривера допускается не больше 500 совместимых пар')
     pair_weights=[ar[ha[i]]*br[hb[j]] for i,j in pairs]
+    proposal, importance = balanced_distribution(pair_weights)
+    proposal_cdf = []
+    for q in proposal:
+        proposal_cdf.append(q + (proposal_cdf[-1] if proposal_cdf else 0))
+    visited_pairs = set()
+    weight_sum = weight_square_sum = 0.0
     # Per-compatible-hand-pair public chance schedule. An affine permutation
     # enumerates every legal turn/river runout exactly once per cycle. This
     # reduces duplicates; it does not remove sampling variance or guarantee NE.
@@ -244,13 +260,17 @@ def solve_multistreet(board_text: str, pot: float, stack: float,
                 u=(((iteration-1)%systemic_cycle)+systematic_offset)/systemic_cycle
             else:
                 u=rng.random()
-            slot=bisect.bisect_left(cumul,u*mass)
+            slot=(min(len(pairs)-1, bisect.bisect_left(proposal_cdf,u)) if private_sampling=='balanced'
+                  else min(len(pairs)-1, bisect.bisect_left(cumul,u*mass)))
             i,j=pairs[slot]
-            worlds=((slot,i,j,1.0),)
+            worlds=((slot,i,j,importance[slot] if private_sampling=='balanced' else 1.0),)
         epoch_updates=defaultdict(lambda:None)
         epoch_ev=0.0
         avg_weight=float(iteration) if averaging=='linear' else 1.0
         for slot,i,j,sample_weight in worlds:
+            visited_pairs.add(slot)
+            weight_sum += sample_weight
+            weight_square_sum += sample_weight * sample_weight
             ah=ha[i];bh=hb[j]
             runout=sample_public_runout(slot,ah,bh)
             full_board=board+runout
@@ -493,6 +513,12 @@ def solve_multistreet(board_text: str, pot: float, stack: float,
                   'private_sampling':('exact' if use_exact_river else private_sampling),
                   'exact_river_training':use_exact_river,'world_updates':total_world_updates,
                   'training_epochs':iterations,
+                  'pair_coverage':{'visited':len(visited_pairs), 'eligible':len(pairs),
+                      'count_pct':100*len(visited_pairs)/len(pairs),
+                      'target_mass_pct':100*sum(pair_weights[k] for k in visited_pairs)/mass,
+                      'ess':weight_sum**2/weight_square_sum if weight_square_sum else 0,
+                      'ess_pct':100*weight_sum**2/weight_square_sum/total_world_updates if weight_square_sum else 0,
+                      'ess_scope':'importance weights; does not measure correlated sample independence or equilibrium'},
                   'worlds_per_epoch':len(pairs) if (use_exact_river or private_sampling=='paired') else 1,
                   'max_bet_sizes_per_street':2,'raises_per_street':1,
                   'no_reraises':True,'chance':'uniform conditioned on both hole cards',

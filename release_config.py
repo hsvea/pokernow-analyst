@@ -1,5 +1,5 @@
 """Public release channel. No credentials belong in this file."""
-VERSION = '8.1.0'
+VERSION = '11.0.0'
 # Set to the confirmed owner/repository before publishing the first release.
 REPOSITORY = 'hsvea/pokernow-analyst'
 ASSET_NAME = 'PokerNowAnalyst-Windows.zip'

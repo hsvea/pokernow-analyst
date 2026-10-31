@@ -16,9 +16,17 @@ def main():
     root = Path(__file__).resolve().parent
     output = root / 'release'
     output.mkdir(exist_ok=True)
-    for script, name, windowed in [('app.py', 'PokerNowAnalyst', True), ('updater.py', 'PokerNowUpdater', True)]:
+    for script, name, windowed in [('app.py', 'PokerNowAnalyst', True), ('updater.py', 'PokerNowUpdater', True), ('installer.py','PokerNowSetup',True)]:
+        extras = (['--collect-all','openai_codex','--collect-all','codex_cli_bin',
+                   '--copy-metadata','openai-codex','--copy-metadata','openai-codex-cli-bin'] if script=='app.py' else [])
         subprocess.run([sys.executable, '-m', 'PyInstaller', '--noconfirm', '--clean', '--onefile',
-                        '--windowed' if windowed else '--console', '--name', name, script], cwd=root, check=True)
+                        '--windowed' if windowed else '--console', '--name', name, *extras, script], cwd=root, check=True)
+    # No account access or inference: ensure the frozen SDK can locate its CLI.
+    check_file=root/'build/sdk-selftest.json'
+    check_file.unlink(missing_ok=True)
+    subprocess.run([str(root/'dist/PokerNowAnalyst.exe'),'--self-test',str(check_file)],check=True,timeout=120)
+    if json.loads(check_file.read_text(encoding='utf-8'))['version'] != VERSION:
+        raise RuntimeError('Frozen app self-test version mismatch')
     archive = output / ASSET_NAME
     with zipfile.ZipFile(archive, 'w', zipfile.ZIP_DEFLATED) as z:
         for name in ('PokerNowAnalyst', 'PokerNowUpdater'):
@@ -38,6 +46,7 @@ def main():
     verify_archive(archive, info)
     (output / 'manifest.json').write_text(json.dumps(info, indent=2), encoding='utf-8')
     shutil.copy2(root / 'DELIVERY_RU.md', output)
+    shutil.copy2(root / 'dist/PokerNowSetup.exe', output / 'PokerNowSetup.exe')
     print(archive)
 
 
