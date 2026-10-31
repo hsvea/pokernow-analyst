@@ -23,7 +23,8 @@ jobs:
       - name: Check release channel and tag
         shell: python
         run: |
-          import os
+          import os, sys
+          sys.path.insert(0, os.environ['GITHUB_WORKSPACE'])
           from release_config import VERSION, REPOSITORY
           assert REPOSITORY == os.environ['GITHUB_REPOSITORY'], 'Configure release_config.py first'
           if os.environ['GITHUB_REF_TYPE'] == 'tag':
