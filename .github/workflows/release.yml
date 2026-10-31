@@ -1,0 +1,42 @@
+name: Windows release
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Check release channel and tag
+        shell: python
+        run: |
+          import os
+          from release_config import VERSION, REPOSITORY
+          assert REPOSITORY == os.environ['GITHUB_REPOSITORY'], 'Configure release_config.py first'
+          if os.environ['GITHUB_REF_TYPE'] == 'tag':
+              assert os.environ['GITHUB_REF_NAME'] == 'v' + VERSION
+      - run: python -m unittest discover -s tests -v
+      - run: python -m pip install pyinstaller==6.16.0
+      - run: python build_release.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PokerNowAnalyst-Windows
+          path: release/*
+      - name: Publish complete release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          gh release create $env:GITHUB_REF_NAME release/* --verify-tag --draft --title "PokerNow Analyst $env:GITHUB_REF_NAME" --notes-file RELEASE_NOTES.md
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          gh release edit $env:GITHUB_REF_NAME --draft=false --latest
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

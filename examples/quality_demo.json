@@ -1,0 +1,39 @@
+{
+  "scope": "offline heads-up river abstract game, one bet size and at most one raise",
+  "board": [
+    "2h",
+    "3h",
+    "5d",
+    "8s",
+    "Jc"
+  ],
+  "pot": 100,
+  "effective_stack": 150,
+  "bet_pct": 50,
+  "raise_factor": 2.5,
+  "ranges": {
+    "A": "AsKs,7c7d",
+    "B": "AcQc,6c6d"
+  },
+  "CFR+": {
+    "iterations": 2500,
+    "seed": 7,
+    "profile_ev_exact": 82.24610832758259,
+    "br_a_ev_exact": 82.73361708101814,
+    "br_b_ev_exact": 80.3518502823686,
+    "nashconv": 2.3817667986495366,
+    "exploitability": 1.1908833993247683,
+    "nashconv_pct_pot": 2.3817667986495366
+  },
+  "LP_reference": {
+    "equilibrium_ev": 81.651376146789,
+    "duality_gap": 1.4210854715202004e-14,
+    "matrix_rows": 144,
+    "matrix_cols": 144
+  },
+  "checks": {
+    "lp_in_best_response_interval": true,
+    "profile_in_best_response_interval": true
+  },
+  "disclaimer": "This is NOT verified exploitability of unrestricted NLHE or flop/turn games."
+}

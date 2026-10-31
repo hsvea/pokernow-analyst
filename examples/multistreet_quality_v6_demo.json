@@ -1,0 +1,35 @@
+{
+  "version": "6.0.0",
+  "study_mode": "offline_only",
+  "inputs": {
+    "board_text": "2h 3h 5d",
+    "pot": 100,
+    "stack": 150,
+    "a_range": "AsKs,7c7d",
+    "b_range": "AcQc,6c6d",
+    "flop_sizes": "50",
+    "turn_sizes": "50",
+    "river_sizes": "50",
+    "raise_factor": 2.5,
+    "iterations": 1200,
+    "seed": 20261031
+  },
+  "diagnostic": {
+    "profile_ev": 82.59570012892817,
+    "br_a_ev": 109.97491820959348,
+    "br_b_ev": 48.76416569800163,
+    "nashconv": 61.210752511591856,
+    "exploitability": 30.605376255795928,
+    "nashconv_pot_pct": 61.210752511591856,
+    "missing_infosets": 121770,
+    "worlds": 7920,
+    "visited_world_states": 3510246,
+    "chance_scope": "full_52_card_deck",
+    "model": "bounded_multistreet_exact_br_fixed_abstract_game"
+  },
+  "notes": [
+    "NashConv is exact for the explicitly bounded heads-up betting model and this exact average policy, with uniform fallback at missing infosets.",
+    "This is NOT full NLHE exploitability or an external solver certification.",
+    "Large missing_infosets means that CFR+ training did not visit many decision points."
+  ]
+}

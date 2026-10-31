@@ -1,0 +1,147 @@
+{
+  "type": "offline_cfr_convergence_benchmark",
+  "scope": "exact_nashconv_for_fixed_bounded_hu_game_only",
+  "input": {
+    "board_text": "Ah Kd 7c 9s 2d",
+    "pot": 100,
+    "stack": 80,
+    "a_range": "AcQc,JsJh",
+    "b_range": "KcQc,TsTd",
+    "flop_sizes": "50",
+    "turn_sizes": "50",
+    "river_sizes": "50",
+    "raise_factor": 2.5,
+    "seed": 9
+  },
+  "checkpoints": [
+    300,
+    1000,
+    2000
+  ],
+  "important": "Iterations are not equivalent computational budgets when exact-river enumeration is enabled. Compare world_updates and training_seconds; results are seed-dependent and NashConv need not decrease monotonically.",
+  "modes": {
+    "v6_like_baseline": [
+      {
+        "iterations": 300,
+        "training_seconds": 0.01833,
+        "world_updates": 300,
+        "nashconv": 2.1378974260784602,
+        "exploitability": 1.0689487130392301,
+        "profile_ev": 59.7435812826631,
+        "br_a_ev": 61.36537263226418,
+        "br_b_ev": 59.22747520618572,
+        "missing_infosets": 0,
+        "worlds_evaluated": 3,
+        "chance_scope": "full_52_card_deck",
+        "exact_river_training": false
+      },
+      {
+        "iterations": 1000,
+        "training_seconds": 0.05759,
+        "world_updates": 1000,
+        "nashconv": 1.576176508753207,
+        "exploitability": 0.7880882543766035,
+        "profile_ev": 60.05442439218555,
+        "br_a_ev": 61.2339522630261,
+        "br_b_ev": 59.65777575427289,
+        "missing_infosets": 0,
+        "worlds_evaluated": 3,
+        "chance_scope": "full_52_card_deck",
+        "exact_river_training": false
+      },
+      {
+        "iterations": 2000,
+        "training_seconds": 0.11674,
+        "world_updates": 2000,
+        "nashconv": 1.4860892146114608,
+        "exploitability": 0.7430446073057304,
+        "profile_ev": 60.37790335204999,
+        "br_a_ev": 61.23089866454796,
+        "br_b_ev": 59.7448094499365,
+        "missing_infosets": 0,
+        "worlds_evaluated": 3,
+        "chance_scope": "full_52_card_deck",
+        "exact_river_training": false
+      }
+    ],
+    "v7_improved": [
+      {
+        "iterations": 300,
+        "training_seconds": 0.04944,
+        "world_updates": 900,
+        "nashconv": 0.34589085721640345,
+        "exploitability": 0.17294542860820172,
+        "profile_ev": 60.93803410382419,
+        "br_a_ev": 61.16013103542595,
+        "br_b_ev": 60.814240178209545,
+        "missing_infosets": 0,
+        "worlds_evaluated": 3,
+        "chance_scope": "full_52_card_deck",
+        "exact_river_training": true
+      },
+      {
+        "iterations": 1000,
+        "training_seconds": 0.16322,
+        "world_updates": 3000,
+        "nashconv": 0.46729509918393575,
+        "exploitability": 0.23364754959196787,
+        "profile_ev": 61.07416822522189,
+        "br_a_ev": 61.266772111713166,
+        "br_b_ev": 60.79947701252923,
+        "missing_infosets": 0,
+        "worlds_evaluated": 3,
+        "chance_scope": "full_52_card_deck",
+        "exact_river_training": true
+      },
+      {
+        "iterations": 2000,
+        "training_seconds": 0.33368,
+        "world_updates": 6000,
+        "nashconv": 0.18644282943456858,
+        "exploitability": 0.09322141471728429,
+        "profile_ev": 61.098830471785455,
+        "br_a_ev": 61.17729234940087,
+        "br_b_ev": 60.990849519966304,
+        "missing_infosets": 0,
+        "worlds_evaluated": 3,
+        "chance_scope": "full_52_card_deck",
+        "exact_river_training": true
+      }
+    ]
+  },
+  "lp_reference": {
+    "equilibrium_ev": 61.111111111111114,
+    "duality_gap": 0.0,
+    "rows": 144,
+    "cols": 144,
+    "status": "exact_minimax_lp_for_tiny_river_game",
+    "v7_last_ev_abs_error": 0.012280639325659592,
+    "lp_inside_best_response_bounds": true
+  },
+  "comparison": [
+    {
+      "iterations": 300,
+      "nashconv_reduction_pct": 83.82097976277234,
+      "baseline_nashconv": 2.1378974260784602,
+      "v7_nashconv": 0.34589085721640345,
+      "baseline_world_updates": 300,
+      "v7_world_updates": 900
+    },
+    {
+      "iterations": 1000,
+      "nashconv_reduction_pct": 70.35261618296943,
+      "baseline_nashconv": 1.576176508753207,
+      "v7_nashconv": 0.46729509918393575,
+      "baseline_world_updates": 1000,
+      "v7_world_updates": 3000
+    },
+    {
+      "iterations": 2000,
+      "nashconv_reduction_pct": 87.45412942901183,
+      "baseline_nashconv": 1.4860892146114608,
+      "v7_nashconv": 0.18644282943456858,
+      "baseline_world_updates": 2000,
+      "v7_world_updates": 6000
+    }
+  ]
+}

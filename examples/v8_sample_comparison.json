@@ -1,0 +1,69 @@
+{
+  "type": "v8_offline_seeded_equal_worlds",
+  "scope": "fixed_bounded_hu_game_not_full_NLHE",
+  "board": "Ah Kd 7c 9s",
+  "iterations_per_seed": 650,
+  "joint_private_pairs": 3,
+  "seeds": [
+    9,
+    21,
+    37
+  ],
+  "results": [
+    {
+      "seed": 9,
+      "v7_random": {
+        "nashconv": 23.84176,
+        "exploitability": 11.92088,
+        "missing_infosets": 0,
+        "world_updates": 650,
+        "training_seconds": 0.0844
+      },
+      "v8_systematic": {
+        "nashconv": 23.50001,
+        "exploitability": 11.750005,
+        "missing_infosets": 0,
+        "world_updates": 650,
+        "training_seconds": 0.0877
+      }
+    },
+    {
+      "seed": 21,
+      "v7_random": {
+        "nashconv": 24.813387,
+        "exploitability": 12.406694,
+        "missing_infosets": 0,
+        "world_updates": 650,
+        "training_seconds": 0.0872
+      },
+      "v8_systematic": {
+        "nashconv": 21.398995,
+        "exploitability": 10.699498,
+        "missing_infosets": 0,
+        "world_updates": 650,
+        "training_seconds": 0.0883
+      }
+    },
+    {
+      "seed": 37,
+      "v7_random": {
+        "nashconv": 22.129391,
+        "exploitability": 11.064695,
+        "missing_infosets": 0,
+        "world_updates": 650,
+        "training_seconds": 0.0878
+      },
+      "v8_systematic": {
+        "nashconv": 22.355611,
+        "exploitability": 11.177805,
+        "missing_infosets": 0,
+        "world_updates": 650,
+        "training_seconds": 0.0883
+      }
+    }
+  ],
+  "mean_nashconv_v7": 23.594846,
+  "mean_nashconv_v8": 22.418205,
+  "mean_reduction_pct": 4.987,
+  "guarantee": "none; seed/sample dependent, improvement not guaranteed"
+}
