@@ -37,6 +37,11 @@
   let scale = Math.max(.8, Math.min(1.2, Number(settings.scale) || 1));
   let compact = settings.compact !== false;
   let activeView = settings.activeView==='players'?'players':'hand';
+  const overlayVersion='15.0.0'; // Version of this loaded script, even after an extension update.
+  const handCollector=globalThis.PokerNowHistory.collector();
+  const tableRecorder=globalThis.PokerNowTableCapture.recorder(Date.now().toString(36)+'-'+Math.random().toString(36).slice(2));
+  let captureResult=null;
+  let tableCaptureSupported=null;
 
   const persist = () => {
     try { localStorage.setItem(storageKey, JSON.stringify({ x: settings.x, y: settings.y, notes, showBadges, minimized, scale, compact, activeView })); } catch {};
@@ -219,12 +224,14 @@
   <div id="seats"></div>
   <section id="panel" role="region" aria-label="PokerNow RTA overlay">
     <div id="drag" class="header">
-      <div class="brand">♠ PokerNow <em>Analyst</em></div>
+      <div class="brand">♠ PokerNow <em>Analyst</em> <small id="overlayVersion">v${overlayVersion}</small></div>
       <div class="tools"><button class="icon" id="seatsToggle" title="Показать/скрыть панели игроков">♟</button><button class="icon" id="minToggle" title="Свернуть/развернуть">−</button><button class="icon" id="close" title="Закрыть оверлей">×</button></div>
     </div>
     <div id="body">
       <div class="status"><i id="stateDot" class="dot"></i><span id="stateText">Ожидаю данные стола…</span></div>
       <div id="connection" role="status">Windows · передача выключена</div>
+      <div id="captureStatus" class="small" role="status"></div>
+      <div class="small subtle">Сбор со стола работает без журнала. Полные истории — дополнительно из открытого LOG или CSV.</div>
       <div id="freshness"></div>
       <div class="viewTabs" role="tablist" aria-label="Раздел оверлея"><button id="handTab" role="tab" aria-controls="handView" aria-selected="true">Раздача</button><button id="playersTab" role="tab" aria-controls="tablePlayersView" aria-selected="false">Игроки</button></div>
       <div id="handView" role="tabpanel" aria-labelledby="handTab">
@@ -294,7 +301,8 @@
       </div>
       <section id="tablePlayersView" role="tabpanel" aria-labelledby="playersTab" hidden>
         <div id="tableStatsMessage" role="status">Ожидание стола</div>
-        <div class="statsHint">Статистика по всем импортированным завершённым рукам этих игроков. Не только текущий стол; типы игр не разделены.</div>
+        <label class="inputrow">Источник <select id="statsSource"><option value="live">Со стола</option><option value="complete">Полные руки (LOG / CSV)</option></select></label>
+        <div class="statsHint" id="statsBasis"></div>
         <label class="row"><span>Только в раздаче*</span><input id="playersInHand" type="checkbox" style="width:auto" /></label>
         <div class="inputrow"><label for="playersSort">Сортировка</label><select id="playersSort"><option value="seat">За столом</option><option value="hands">Число рук</option><option value="vpip">VPIP</option><option value="name">Ник</option></select></div>
         <div class="statsScroll"><table id="activeStats"><thead><tr><th scope="col">Игрок</th><th scope="col">Рук</th><th scope="col">VPIP</th><th scope="col">PFR</th><th scope="col">3-bet</th><th scope="col">F/3-bet</th><th scope="col">AF</th><th scope="col">Статус</th></tr></thead><tbody id="activeStatsBody"></tbody></table></div>
@@ -318,6 +326,7 @@
     event.preventDefault();activeView=event.key==='Home'?'hand':event.key==='End'?'players':activeView==='hand'?'players':'hand';applyTab();el(activeView==='hand'?'handTab':'playersTab').focus();
   };
   el('playersInHand').onchange=renderTablePlayers;el('playersSort').onchange=renderTablePlayers;
+  el('statsSource').onchange=()=>{el('playersSort').value='seat';renderTablePlayers();};
   applyTab();
   el('diagnosticPrepare').onclick=()=>{
     diagnosticPreview=JSON.stringify(globalThis.PokerNowHistory.diagnostic(current||{},current?.history||{}),null,2);
@@ -546,10 +555,15 @@
       (profile?`${profile.hands} рук${profile.hands<50?' · малая выборка':''}\nРанее: ${(profile.aliases||[]).filter(n=>n!==player.name).join(', ')||'—'}\nЗаметка: ${profile.note||'—'}\nИзменить заметку можно в Windows-приложении.`:'Нет свежей связи с профилем в Windows-приложении.');
     if(profile){const op=profile.opportunities||{};box.textContent+='\nВозможностей 3-bet: '+(op.threebet||0)+' · против 3-bet: '+(op.f3bet||0)+' · postflop-коллов для AF: '+(op.post_call||0);}
     el('tableProfileDetail').textContent=box.textContent;
+    if(profile?.live){const l=profile.live;const detail='\nСо стола: '+l.seen+' частичных наблюдений рук · '+l.actions+' действий\nCall '+l.call+' · Raise '+l.raise+' · Bet '+l.bet+' · Check '+l.check+' · Fold '+l.fold+' · изменений ставки без распознанного действия: '+l.chips;box.textContent+=detail;el('tableProfileDetail').textContent+=detail;}
   }
   function renderTablePlayers(){
     if(!current)return;
     const fresh=bridgeEnabled && lastBridgeOK>0 && Date.now()-profileReceived<8000;
+    const liveMode=el('statsSource').value==='live';
+    const headers=liveMode?['Игрок','Руки*','Действий','Call','Raise','Bet','Check','Fold']:['Игрок','Рук','VPIP','PFR','3-bet','F/3-bet','AF','Статус'];
+    root.querySelectorAll('#activeStats th').forEach((th,i)=>th.textContent=headers[i]);
+    setText('statsBasis',liveMode?'Наблюдения со стола, без LOG. Руки* — частичные наблюдения, не полные истории; перезагрузка страницы может разделить одну руку. Действия могут быть пропущены. По всем сохранённым столам; типы игр не разделены.':'Полные сохранённые руки из LOG / CSV. VPIP/PFR не вычисляются из неполных наблюдений. Типы игр не разделены.');
     const all=current.players||[], seen=new Set();
     let players=all.filter(p=>{const key=p.profileId?'p:'+p.profileId:'n:'+p.name.toLowerCase();if(seen.has(key))return false;seen.add(key);return true;});
     if(el('playersInHand').checked)players=players.filter(p=>!p.folded&&!/away|offline|in next hand|sitting out/i.test(p.status||''));
@@ -569,15 +583,22 @@
       const st=profile(p),h=st?.hands;
       row.classList.toggle('selected',selectedPlayer===key);
       row.children[0].firstChild.textContent=p.name+(p.isMe?' ★':'');row.children[0].firstChild.title=p.name+' · открыть профиль';
-      const values=[h==null?'—':h+(h<50?' ⚠':''),pct(st?.vpip),pct(st?.pfr),pct(st?.threebet),pct(st?.f3bet),st?.af??'—',p.status||(p.folded?'Fold':'За столом')];
+      const l=st?.live;
+      const values=liveMode?['seen','actions','call','raise','bet','check','fold'].map(k=>l?.[k]??'—'):[h==null?'—':h+(h<50?' ⚠':''),pct(st?.vpip),pct(st?.pfr),pct(st?.threebet),pct(st?.f3bet),st?.af??'—',p.status||(p.folded?'Fold':'За столом')];
       values.forEach((v,i)=>row.children[i+1].textContent=String(v));
-      row.children[1].title=h==null?'Нет связи со статистикой':h===0?'Нет импортированных рук':h<50?'Малая выборка':'Количество импортированных рук';
+      row.children[1].title=h==null?'Нет связи со статистикой':h===0?'Нет сохранённых рук':h<50?'Малая выборка':'Количество сохранённых рук';
       row.children[4].title='Возможностей 3-bet: '+(st?.opportunities?.threebet??'—');row.children[5].title='Возможностей против 3-bet: '+(st?.opportunities?.f3bet??'—');
+      if(liveMode){row.children[1].title='Частичные наблюдения рук, не полные истории';row.children[4].title='Замеченные Raise';row.children[5].title='Замеченные Bet';}
       if(body.children[rowIndex]!==row)body.insertBefore(row,body.children[rowIndex]||null);
       rowIndex++;
     }
     [...body.children].forEach(row=>{if(!used.has(row.dataset.player))row.remove();});
     if(selectedPlayer&&!used.has(selectedPlayer)){el('tableProfileDetail').hidden=true;}
+  }
+  function renderCapture(){
+    const source=current?.logSource;
+    const state=!bridgeEnabled?'включи передачу в Windows':tableCaptureSupported===false?'обнови Windows-приложение до v15':document.hidden?'пауза: вкладка скрыта':!lastBridgeOK||Date.now()-lastBridgeOK>=8000?'нет связи с Windows · очередь сохраняется до закрытия страницы':'со стола · работает без LOG';
+    setText('captureStatus','Сбор: '+state+' · очередь действий '+tableRecorder.size()+' · полных рук '+handCollector.size()+(captureResult?' · #'+(captureResult.number||'')+' '+captureResult.reason:'')+(tableRecorder.warning()?' · '+tableRecorder.warning():'')+(handCollector.warning()?' · '+handCollector.warning():''));
   }
   function sendBridge(raw){
     if (!bridgeEnabled || !/^[a-f0-9]{24}$/.test(pairingCode)) return;
@@ -590,6 +611,8 @@
       street:raw.street, pot:raw.pot, call:raw.call, onTurn:raw.onTurn,
       hole:raw.hole, board:raw.board,
       hero:raw.hero?{name:raw.hero.name, stack:raw.hero.stack}:null,
+      capturedHand:handCollector.next(),
+      tableEvents:tableRecorder.batch(),
       players:raw.players.map(p=>({name:p.name,profileId:p.profileId,stack:p.stack,
         bet:p.bet,status:p.status,isMe:p.isMe,folded:p.folded}))
     };
@@ -599,10 +622,14 @@
       if(reply?.ok){profileCache=reply.profiles||{};profileReceived=Date.now();lastBridgeOK=Date.now();}
       else {profileCache={};lastBridgeOK=0;}
       if(reply?.extensionReloaded){bridgeEnabled=false;setText('bridgeStatus','Расширение обновлено. Обнови вкладку стола, чтобы загрузить новую версию.');return;}
+      if(reply?.ok && reply.capture){captureResult=reply.capture;handCollector.ack(String(reply.capture.number));}
+      if(reply?.ok && Array.isArray(reply.tableAck))tableRecorder.ack(reply.tableAck);
+      if(reply?.ok)tableCaptureSupported=Array.isArray(reply.tableAck);
+      if(reply?.ok && snapshot.capturedHand && reply.capture===undefined)captureResult={reason:'Обнови Windows-приложение для сохранения рук'};
       bridgeMessage=err?'Ошибка расширения: '+err.message:
         reply?.ok?'● Связь с Windows · '+new Date().toLocaleTimeString():
         'Нет связи: '+(reply?.error||'запусти приложение');
-      setText('bridgeStatus',bridgeMessage);renderConnection();renderProfile();renderTablePlayers();
+      setText('bridgeStatus',bridgeMessage);renderConnection();renderProfile();renderTablePlayers();renderCapture();
     });
   }
 
@@ -695,14 +722,17 @@
     if(destroyed)return;
     const raw=getState();
     raw.logSource=globalThis.PokerNowHistory.extract(document);
+    if(current && current.table!==raw.table)captureResult=null;
+    handCollector.observe(raw.logSource,raw.table);
     raw.history=globalThis.PokerNowHistory.analyze(raw.logSource,raw);
     if(!raw.handId && raw.logSource.current)raw.handId=raw.history.handId||'';
     trackHand(raw);
+    if(bridgeEnabled&&!document.hidden)tableRecorder.observe(raw);else tableRecorder.pause();
     current=getEffective(raw);
     sendBridge(raw);
     const v=current;
     renderPreflop(v);renderHistory(v);
-    renderConnection();renderProfile();renderTablePlayers();
+    renderConnection();renderProfile();renderTablePlayers();renderCapture();
     setText('freshness',v.paused||handNotice||'Данные из видимого стола · проверяй ситуацию');
     el('freshness').classList.toggle('warn',!!v.paused);
     setText('stateText',v.paused?'ПАУЗА · '+v.street:v.hero?'LIVE · '+v.street+(v.onTurn?' · ТВОЙ ХОД':''):'Стол открыт · Hero не определён');

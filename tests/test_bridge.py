@@ -52,3 +52,30 @@ class BridgeTests(unittest.TestCase):
     def test_invalid_player_rejected(self):
         self.assertEqual(self.request(name={'html':'bad'})[0], 400)
         self.assertTrue(self.events.empty())
+
+    def test_capture_is_committed_before_ack_and_profiles(self):
+        from test_live_capture import ROWS
+        conn = http.client.HTTPConnection('127.0.0.1', self.server.server_port)
+        try:
+            payload = {'tableId':'fixture','players':[{'profileId':'a','name':'Same'}], 'capturedHand':{'rows':ROWS}}
+            for expected in ['saved','duplicate']:
+                conn.request('POST','/v1/snapshot',json.dumps(payload),{'Authorization':'Bearer test-token'})
+                response=conn.getresponse();body=json.loads(response.read())
+                self.assertEqual(response.status,200)
+                self.assertEqual(body['capture']['status'],expected)
+                self.assertEqual(body['profiles']['p:a']['hands'],1)
+                self.assertEqual(body['profiles']['p:a']['pfr'],100)
+        finally: conn.close()
+
+    def test_table_actions_without_log_are_saved_before_ack(self):
+        conn = http.client.HTTPConnection('127.0.0.1', self.server.server_port)
+        try:
+            event=dict(id='sample:1',hand='sample:h1',profileId='42',name='New',kind='call',street='PREFLOP',bet=2)
+            for _ in range(2):
+                payload={'tableId':'fixture','players':[{'profileId':'42','name':'New'}],'tableEvents':[event]}
+                conn.request('POST','/v1/snapshot',json.dumps(payload),{'Authorization':'Bearer test-token'})
+                res=conn.getresponse();data=json.loads(res.read())
+                self.assertEqual(res.status,200);self.assertEqual(data['tableAck'],['sample:1'])
+                self.assertEqual(data['profiles']['p:42']['live']['call'],1)
+                self.assertEqual(data['profiles']['p:42']['hands'],0)
+        finally: conn.close()

@@ -28,12 +28,12 @@ class TablePlayersTab(ttk.Frame):
         self.in_hand = tk.BooleanVar(value=False)
         self.status = tk.StringVar(value='Ожидание подключения оверлея')
         ttk.Label(self,textvariable=self.status,wraplength=950).pack(anchor='w',pady=(12,5))
-        ttk.Label(self,text='Все импортированные завершённые руки этих игроков, не только текущий стол. Типы игр не разделены.').pack(anchor='w',pady=5)
+        ttk.Label(self,text='Все сохранённые завершённые руки этих игроков, не только текущий стол. Типы игр не разделены.').pack(anchor='w',pady=5)
         ttk.Checkbutton(self,text='Только в раздаче (по видимому статусу)',variable=self.in_hand,command=lambda:self.refresh(force=True)).pack(anchor='w',pady=5)
         frame=ttk.Frame(self);frame.pack(fill='both',expand=True)
-        columns=('name','stack','state','hands','vpip','pfr','threebet','f3bet','af','sample')
+        columns=('name','stack','state','hands','vpip','pfr','threebet','f3bet','af','sample','live_seen','live_actions')
         self.tree=ttk.Treeview(frame,columns=columns,show='headings',selectmode='browse',height=10)
-        for col,title,width in zip(columns,('Игрок','Стек','Статус','Рук','VPIP','PFR','3-bet','Fold vs 3-bet','AF','Выборка'),(150,70,140,60,65,65,65,100,60,130)):
+        for col,title,width in zip(columns,('Игрок','Стек','Статус','Рук','VPIP','PFR','3-bet','Fold vs 3-bet','AF','Выборка','Набл. рук*','Действий*'),(150,70,140,60,65,65,65,100,60,130,90,90)):
             self.tree.heading(col,text=title);self.tree.column(col,width=width,minwidth=50,anchor='w' if col in ('name','state','sample') else 'center')
         vertical=ttk.Scrollbar(frame,command=self.tree.yview);vertical.pack(side='right',fill='y')
         horizontal=ttk.Scrollbar(self,orient='horizontal',command=self.tree.xview);horizontal.pack(fill='x')
@@ -70,6 +70,7 @@ class TablePlayersTab(ttk.Frame):
             p=r['player'];s=r['profile'] or {};h=s.get('hands',0)
             values=(r['name']+(' ★' if p.get('isMe') else ''),p.get('stack') if p.get('stack') is not None else '—',p.get('status') or ('Fold' if p.get('folded') else 'За столом'),h,
                     percent(s.get('vpip')),percent(s.get('pfr')),percent(s.get('threebet')),percent(s.get('f3bet')),s.get('af') if s.get('af') is not None else '—','Нет рук' if not h else 'Малая (<50 рук)' if h<50 else f'{h} рук')
+            values += (s.get('live',{}).get('seen',0),s.get('live',{}).get('actions',0))
             if r['key'] in existing:self.tree.item(r['key'],values=values);existing.remove(r['key'])
             else:self.tree.insert('',index,iid=r['key'],values=values)
             self.tree.move(r['key'],'',index)
@@ -84,6 +85,8 @@ class TablePlayersTab(ttk.Frame):
         p=r['profile'] or {};op=p.get('opportunities',{})
         text=f"{r['name']} · {'PokerNow ID' if r['key'].startswith('p:') else 'Только ник — личность не подтверждена'}\n"
         text+='История ников: '+(', '.join(p.get('aliases',[])) or '—')+'\n'
+        live=p.get('live',{})
+        text+='Со стола*: '+', '.join(f'{k}={live.get(k,0)}' for k in ('call','raise','bet','check','fold','chips'))+'\n* Частичные наблюдения; возможны пропуски. chips — изменение ставки без распознанного действия.\n'
         text+=f"Возможностей для 3-bet: {op.get('threebet',0)} · против 3-bet: {op.get('f3bet',0)} · postflop-коллов для AF: {op.get('post_call',0)}\n"
         text+='Заметка: '+(p.get('note') or '—')+'\nМалая выборка — предупреждение; 50 рук не гарантируют надёжность выводов.'
         self.app.set_text(self.detail,text)

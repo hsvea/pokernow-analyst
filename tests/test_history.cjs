@@ -58,3 +58,44 @@ test('sanitized observed-format example parses every known event',()=>{
  assert.equal(fixture.rows.map(h.parse).some(e=>e.type==='unknown'),false);
  assert.equal(fixture.rows.map(h.parse).filter(e=>e.type==='raise').length,2);
 });
+
+test('collector retries until acknowledged, survives closing log, isolates tables',()=>{
+ const c=h.collector(),rows=[row('-- starting hand #12 No Limit Texas Hold\'em --'),row('Player stacks: #1 A (100) | #2 B (100)'),row('-- ending hand #12 --')];
+ c.observe({rows:rows.slice(0,-1)},'one');assert.equal(c.size(),0);
+ c.observe({rows},'one');c.observe({rows},'one');assert.equal(c.size(),1);
+ c.observe({rows:[]},'one');assert.equal(c.next().number,'12');
+ c.ack('12');c.observe({rows},'one');assert.equal(c.size(),0);
+ c.observe({rows},'two');assert.equal(c.size(),1);
+ c.observe({rows:[]},'three');assert.equal(c.size(),0);
+});
+test('collector ignores unmatched boundaries and processes recent complete hands in long logs',()=>{
+ const c=h.collector();
+ c.observe({rows:[row('-- starting hand #1 --'),row('-- ending hand #2 --')]},'table');assert.equal(c.size(),0);
+ c.observe({truncated:true,rows:[row('-- ending hand #0 --'),row('-- starting hand #1 --'),row('-- ending hand #1 --')]},'table');assert.equal(c.next().number,'1');
+});
+test('identified log text retains every stable ID in stacks and actions',()=>{
+ const dom=new JSDOM('<div class="log-modal"><div class="log-modal-entries"><div class="entry-ctn"><p class="content">Player stacks: #1 "<abbr title="Player ID: a">Same</abbr>" (100) | #2 "<abbr title="Player ID: b">Same</abbr>" (200)</p></div></div></div>');
+ const r=h.extract(dom.window.document).rows[0];
+ assert.equal(r.identifiedText,'Player stacks: #1 "Same @ a" (100) | #2 "Same @ b" (200)');
+ assert.doesNotMatch(r.text,/@/);dom.window.close();
+});
+
+const tableCapture=require('../pokernow_overlay_v2/table_capture.js');
+test('table-only capture counts changed actions once and does not invent actions from bets',()=>{
+ const r=tableCapture.recorder('session'), s={table:'one',dealerKey:'a',board:[],street:'PREFLOP',players:[{profileId:'a',name:'A',status:'',bet:1},{profileId:'b',name:'B',status:'',bet:2}]};
+ r.observe(s);assert.equal(r.size(),2);r.ack(r.batch().map(e=>e.id));
+ s.players[0].status='call';s.players[0].bet=2;r.observe(s);r.observe(s);
+ assert.deepEqual(r.batch().map(e=>e.kind),['call']);
+ s.players[1].bet=8;r.observe(s);assert.equal(r.batch().at(-1).kind,'chips');
+ s.players[0].status='fold';s.players[0].folded=true;r.observe(s);
+ s.board=['As','Kd','2h'];s.street='FLOP';r.observe(s);assert.equal(r.batch().filter(e=>e.kind==='fold').length,1);
+ const n=r.size();r.pause();s.table='two';r.observe(s);assert.equal(r.size(),2);assert.ok(n>2);
+});
+test('table-only new hands and reconnects keep queued events but reset baseline',()=>{
+ const r=tableCapture.recorder('session'),s={table:'one',dealerKey:'a',board:[],street:'PREFLOP',players:[{profileId:'a',name:'A',status:'check',bet:0}]};
+ r.observe(s);const first=r.batch()[0].hand;r.observe(s);assert.equal(r.size(),1);
+ s.dealerKey='b';r.observe(s);assert.notEqual(r.batch()[1].hand,first);
+ r.pause();s.players[0].status='raise';s.players[0].bet=10;r.observe(s);
+ assert.equal(r.batch().filter(e=>e.kind==='raise').length,0);
+ assert.equal(r.size(),3);
+});

@@ -11,6 +11,7 @@ function parse(row){
  m=text.match(/^(Flop|Turn|River):\s*(.*)$/i);
  if(m)return {type:'street',street:m[1].toLowerCase()};
  if(/^Player stacks:/i.test(text))return {type:'stacks'};
+ if(/^Your hand is /i.test(text))return {type:'admin'};
  // Only known administrative events may be ignored. Unknown wording blocks advice.
  if(/^The (?:admin approved the player .+ participation with a stack of [\d,.]+\.|player .+ (?:requested a seat\.|quits the game with a stack of [\d,.]+\.))$/.test(text))return {type:'admin'};
  m=text.match(/^(.+?) (posts a small blind of|posts a big blind of|raises to|calls|checks|folds)(?:\s+([\d,.]+))?(?:\s+and go(?:es)? all in)?\s*$/i);
@@ -27,7 +28,9 @@ function extract(doc){
  const rows=entries.slice(0,400).map(e=>{
    const p=e.querySelector('p.content');
    const actor=p?.querySelector('abbr[title^="Player ID: "]');
-   return {text:(p?.textContent||'').trim().slice(0,1500),actorId:actor?.getAttribute('title').slice(11)||''};
+   const identified=p?.cloneNode(true);
+   identified?.querySelectorAll('abbr[title^="Player ID: "]').forEach(a=>{a.textContent=a.textContent+' @ '+a.getAttribute('title').slice(11);});
+   return {text:(p?.textContent||'').trim().slice(0,1500),identifiedText:(identified?.textContent||'').trim(),actorId:actor?.getAttribute('title').slice(11)||''};
  });
  const historical=Array.from(modal.querySelectorAll('.pagination-button')).some(b=>/^\s*«/.test(b.textContent));
  return {source:'session-log',current:!historical,truncated:entries.length>400,rows:rows.reverse()};
@@ -108,11 +111,36 @@ function diagnostic(state,history){
  const players=state.players||[], aliases=new Map();
  players.forEach((p,i)=>{aliases.set('p:'+p.profileId,'Player '+(i+1));aliases.set('n:'+p.name,'Player '+(i+1));});
  const safeEvents=(history.events||[]).map(e=>({type:e.type,actor:e.actor?(aliases.get(e.actor)||'Unknown player'):undefined,amount:e.amount??undefined,street:e.street}));
- return {schema:1,extension:'14.0.1',variant:state.variant||'unknown',street:state.street,boardCount:state.board?.length||0,holeCount:state.hole?.length||0,pot:state.pot,call:state.call,
+ return {schema:1,extension:'15.0.0',variant:state.variant||'unknown',street:state.street,boardCount:state.board?.length||0,holeCount:state.hole?.length||0,pot:state.pot,call:state.call,
    players:players.map((p,i)=>({name:'Player '+(i+1),seat:p.seat,stack:p.stack,bet:p.bet,folded:p.folded,isMe:p.isMe,dealer:p.dealer})),
    history:{status:history.status,reason:history.reason,scenario:history.scenario,raises:history.raises,events:safeEvents},
    privacy:'No names, PokerNow IDs, table URL, pairing code, notes, raw log or card values.'};
 }
-const api={parse,extract,analyze,diagnostic};
+function collector(){
+ const pending=new Map(),done=new Set();let table='',warning='';
+ return {
+  observe(source,tableId){
+   if(table!==tableId){table=tableId;pending.clear();done.clear();warning='';}
+   let rows=null,number=null;
+   for(const row of source.rows||[]){
+    const text=row.identifiedText||row.text||'',start=text.match(/^--\s*starting hand\s*#(\d+)/i),end=text.match(/^--\s*ending hand\s*#(\d+)/i);
+    if(start){rows=[];number=start[1];}
+    if(rows)rows.push(text);
+    if(end && rows){
+     if(end[1]===number&&!done.has(number)&&!pending.has(number)){
+      if(rows.length<=250&&encodeURIComponent(JSON.stringify(rows)).replace(/%[A-F\d]{2}/g,'x').length<16000&&pending.size<10)pending.set(number,{number,rows});
+      else warning='Очередь переполнена или рука слишком большая; сохрани CSV';
+     }
+     rows=null;number=null;
+    }
+   }
+  },
+  next:()=>pending.values().next().value||null,
+  ack(number){pending.delete(number);done.add(number);if(done.size>1000)done.delete(done.values().next().value);},
+  size:()=>pending.size,
+  warning:()=>warning
+ };
+}
+const api={parse,extract,analyze,diagnostic,collector};
 if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.PokerNowHistory=api;
 })(globalThis);

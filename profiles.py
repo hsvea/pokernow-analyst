@@ -54,6 +54,9 @@ def snapshot_profiles(db_path, players):
             if not name:
                 continue
             entry = details(conn,key)
+            live = dict(conn.execute('SELECT kind,COUNT(*) FROM table_events WHERE player=? GROUP BY kind',(key,)))
+            entry['live'] = {field:live.get(field,0) for field in ('seen','call','raise','bet','check','fold','chips')}
+            entry['live']['actions'] = sum(live.get(field,0) for field in ('call','raise','bet','check','fold'))
             totals = {field:0 for field in ('hands','vpip','pfr','threebet','threebet_opp','f3bet','f3bet_opp','post_bet_raise','post_call')}
             for (raw,) in conn.execute('SELECT stats_json FROM samples WHERE player=?',(key,)):
                 sample = json.loads(raw)
@@ -66,7 +69,7 @@ def snapshot_profiles(db_path, players):
             entry.update(threebet=ratio('threebet','threebet_opp'), f3bet=ratio('f3bet','f3bet_opp'),
                          af=round(totals['post_bet_raise']/totals['post_call'],2) if totals['post_call'] else None,
                          opportunities={'threebet':totals['threebet_opp'],'f3bet':totals['f3bet_opp'],
-                                        'post_call':totals['post_call']}, basis='all imported completed hands')
+                                        'post_call':totals['post_call']}, basis='all stored completed hands')
             # Keep local bridge payload bounded even for large note histories.
             entry['note'] = entry['note'][:300]
             entry['aliases'] = entry['aliases'][:12]

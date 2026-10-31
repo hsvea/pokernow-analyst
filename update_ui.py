@@ -19,7 +19,17 @@ class UpdateUI:
         self.button.pack(anchor='w', pady=5)
         self.install_button = ttk.Button(parent, text='Установить обновление', command=self.install)
         ttk.Button(parent,text='Установить скачанный ZIP',command=self.install_zip).pack(anchor='w',pady=5)
+        ttk.Button(parent,text='Открыть папку приложения',command=self.open_folder).pack(anchor='w',pady=5)
         app.after(3000, lambda: self.check(automatic=True))
+
+    def open_folder(self):
+        folder = Path(sys.executable).resolve().parent if getattr(sys, 'frozen', False) else Path(__file__).resolve().parent
+        if folder.name.lower() == 'app' and (folder.parent / 'pokernow_overlay_v2').is_dir():
+            folder = folder.parent
+        try:
+            os.startfile(str(folder))
+        except OSError as exc:
+            messagebox.showerror('Папка приложения', str(exc))
 
     def check(self, automatic=False):
         if self.busy:

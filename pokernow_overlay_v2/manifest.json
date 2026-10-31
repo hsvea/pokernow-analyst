@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "PokerNow Analyst Overlay",
   "description": "Read-only PokerNow overlay with local pairing to the PokerNow Analyst desktop app.",
-  "version": "14.0.1",
+  "version": "15.0.0",
   "permissions": [
     "storage"
   ],
@@ -23,6 +23,7 @@
       "js": [
         "preflop.js",
         "history.js",
+        "table_capture.js",
         "content.js"
       ],
       "run_at": "document_idle"

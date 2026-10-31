@@ -27,6 +27,8 @@ from update_ui import UpdateUI
 from updater import AppLock
 from profiles import remember, details, snapshot_profiles
 from table_players_ui import TablePlayersTab
+from live_capture import ingest
+from table_capture import ingest_table
 
 PORT = 8765
 APP_DIR = Path(os.environ.get('APPDATA', str(Path.home()))) / 'PokerNowAnalyst'
@@ -75,7 +77,7 @@ def make_handler(token, events, db_path=DB_PATH):
                 return
             try:
                 size = int(self.headers.get('Content-Length', 0))
-                if size < 2 or size > 32768:
+                if size < 2 or size > 131072:
                     self.respond(413, {'error': 'invalid payload length'})
                     return
                 data = json.loads(self.rfile.read(size))
@@ -88,8 +90,10 @@ def make_handler(token, events, db_path=DB_PATH):
                             or len(player['name']) > 90 or not isinstance(player.get('profileId',''),str)
                             or len(player.get('profileId','')) > 100):
                         raise ValueError('Invalid player')
+                capture = ingest(db_path, data['tableId'], data.get('capturedHand'))
+                table_ack = ingest_table(db_path, data['tableId'], data.get('tableEvents'))
                 events.put(('snapshot', data))
-                self.respond(200, {'ok': True, 'version': VERSION, 'profiles':snapshot_profiles(db_path,data['players'])})
+                self.respond(200, {'ok': True, 'version': VERSION, 'capture':capture, 'tableAck':table_ack, 'profiles':snapshot_profiles(db_path,data['players'])})
             except (ValueError, TypeError, json.JSONDecodeError) as e:
                 self.respond(400, {'error': str(e)})
             except sqlite3.Error:
@@ -559,6 +563,10 @@ class Analyst(tk.Tk):
         profile = details(self.db, st['key'])
         result += '\n\nПривязка: ' + profile['identity'] + ' · ' + st['key']
         result += '\nИстория ников: ' + (', '.join(profile['aliases']) or '—')
+        live = dict(self.db.execute('SELECT kind,COUNT(*) FROM table_events WHERE player=? GROUP BY kind', (st['key'],)))
+        if live:
+            result += '\n\nСо стола (частичные наблюдения): ' + ', '.join(f'{k}={live.get(k,0)}' for k in ('call','raise','bet','check','fold'))
+            result += f"\nИзменений ставки без распознанного действия: {live.get('chips',0)}. Это не полные истории; возможны пропуски."
         if not st['key'].startswith('p:'):
             result += '\nБез PokerNow ID привязка только по нику; одноимённые игроки могут совпадать.'
         rows = self.db.execute('SELECT status FROM observations WHERE player=?', (st['key'],)).fetchall()

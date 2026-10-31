@@ -28,7 +28,7 @@ test('overlay renders preflop advice and stable-ID profile on a fixture table',a
     w.Element.prototype.attachShadow=function(){return original.call(this,{mode:'open'});};
     w.chrome={storage:{local:{get:(_,cb)=>w.queueMicrotask(()=>cb({pairingCode:'a'.repeat(24),bridgeEnabled:true})),set:()=>{}}},runtime:{lastError:null,sendMessage:(_,cb)=>w.queueMicrotask(()=>cb({ok:true,version:'11.0.0',profiles:{'p:id0':{hands:20,vpip:30,pfr:15,aliases:['Old Name','Renamed'],note:'careful'}}}))}};
     w.eval(src('preflop.js'));
-    w.eval(src('history.js'));w.eval(src('content.js'));
+    w.eval(src('history.js'));w.eval(src('table_capture.js'));w.eval(src('content.js'));
     await new Promise(r=>setTimeout(r,25));
     const root=w.document.getElementById('pnow-rta-extension-root').shadowRoot;
     const input=(id,value)=>{const e=root.getElementById(id);e.value=value;e.dispatchEvent(new w.Event('input'));};
@@ -41,7 +41,7 @@ test('overlay renders preflop advice and stable-ID profile on a fixture table',a
     assert.match(root.getElementById('seats').textContent,/Малая выборка/);
     input('pfScenario','');
     assert.match(root.getElementById('preflopAdvice').textContent,/историю повышений/);
-    root.getElementById('playersTab').click();
+    root.getElementById('playersTab').click();root.getElementById('statsSource').value='complete';root.getElementById('statsSource').dispatchEvent(new w.Event('change'));
     assert.match(root.getElementById('activeStatsBody').textContent,/30%/);
     w.chrome.runtime.sendMessage=()=>{}; // Simulate an app that stopped answering.
     const now=w.Date.now();w.Date.now=()=>now+9000;input('pfPlayers','6');
@@ -53,7 +53,7 @@ const fixture=()=>{
   const w=dom.window, original=w.Element.prototype.attachShadow;
   w.Element.prototype.attachShadow=function(){return original.call(this,{mode:'open'});};
   w.chrome={storage:{local:{get:(_,cb)=>cb({}),set:()=>{}}},runtime:{lastError:null,sendMessage:()=>{}}};
-  w.eval(src('preflop.js'));w.eval(src('history.js'));w.eval(src('content.js'));
+  w.eval(src('preflop.js'));w.eval(src('history.js'));w.eval(src('table_capture.js'));w.eval(src('content.js'));
   const root=w.document.getElementById('pnow-rta-extension-root').shadowRoot;
   const el=id=>root.getElementById(id);
   const input=(id,value)=>{el(id).value=value;el(id).dispatchEvent(new w.Event('input'));};
@@ -177,5 +177,32 @@ test('real status icons identify next-hand arrivals without removing folded seat
  w.document.querySelector('.table-cards').innerHTML=['2','3','4'].map(v=>'<div class="card-container"><span class="value">'+v+'</span><span class="suit">d</span></div>').join('');tick();
  assert.equal(el('preflopPanel').hidden,true);
  assert.match(el('cards').textContent,/HERO · BTN/);
+ }finally{dom.window.close();}
+});
+
+test('overlay shows loaded version and sends complete hands until Windows acknowledges',()=>{
+ const {dom,w,el,tick}=fixture();try{
+ assert.equal(el('overlayVersion').textContent,'v'+JSON.parse(src('manifest.json')).version);
+ assert.match(el('captureStatus').textContent,/включи передачу/);
+ w.document.body.insertAdjacentHTML('beforeend','<div class="log-modal"><div class="log-modal-entries"><div class="entry-ctn"><p class="content">-- ending hand #12 --</p></div><div class="entry-ctn"><p class="content">Player stacks: #1 A (100) | #2 B (100)</p></div><div class="entry-ctn"><p class="content">-- starting hand #12 No Limit Texas Hold\'em --</p></div></div></div>');
+ let sent;w.chrome.runtime.sendMessage=(message,cb)=>{sent=message.snapshot;cb({ok:true,tableAck:message.snapshot.tableEvents.map(e=>e.id),capture:{number:'12',status:'saved',added:1,total:1,reason:'Сохранена'},profiles:{}});};
+ el('pairInput').value='a'.repeat(24);el('bridgeEnable').checked=true;el('bridgeEnable').dispatchEvent(new w.Event('change'));
+ assert.equal(sent.capturedHand.number,'12');assert.match(el('captureStatus').textContent,/полных рук 0/);assert.match(el('captureStatus').textContent,/Сохранена/);
+ w.document.querySelector('.log-modal').remove();tick();assert.match(el('captureStatus').textContent,/без LOG/);
+ }finally{dom.window.close();}
+});
+
+test('visible table action is sent without LOG and appears in live statistics',()=>{
+ const {dom,w,el,tick}=fixture();try{
+ let sent=[];
+ w.chrome.runtime.sendMessage=(m,cb)=>{sent.push(...m.snapshot.tableEvents);cb({ok:true,tableAck:m.snapshot.tableEvents.map(e=>e.id),profiles:{'p:id0':{hands:0,live:{seen:1,actions:1,call:1,raise:0,bet:0,check:0,fold:0}}}});};
+ el('pairInput').value='a'.repeat(24);el('bridgeEnable').checked=true;el('bridgeEnable').dispatchEvent(new w.Event('change'));
+ w.document.querySelector('.table-player-0 .table-player-status-message').textContent='call';
+ w.document.querySelector('.table-player-0 .bet-value').textContent='2';
+ const now=w.Date.now();w.Date.now=()=>now+2000;tick();
+ assert.equal(sent.filter(e=>e.kind==='call').length,1);tick();assert.equal(sent.filter(e=>e.kind==='call').length,1);
+ assert.match(el('captureStatus').textContent,/работает без LOG/);
+ el('playersTab').click();assert.equal(el('statsSource').value,'live');assert.match(el('statsBasis').textContent,/частичные/);
+ assert.equal(el('activeStatsBody').children[0].children[3].textContent,'1');
  }finally{dom.window.close();}
 });

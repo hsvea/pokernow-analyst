@@ -171,6 +171,8 @@ def connect(db_path):
     CREATE TABLE IF NOT EXISTS observations (id INTEGER PRIMARY KEY AUTOINCREMENT,room TEXT,player TEXT,name TEXT,
        street TEXT,status TEXT,bet REAL,ts TEXT);
     CREATE INDEX IF NOT EXISTS idx_obs_player ON observations(player);
+    CREATE TABLE IF NOT EXISTS table_events (id TEXT PRIMARY KEY,room TEXT,hand TEXT,player TEXT,name TEXT,kind TEXT,street TEXT,bet REAL);
+    CREATE INDEX IF NOT EXISTS idx_table_events_player ON table_events(player);
     CREATE INDEX IF NOT EXISTS idx_samples_player ON samples(player);
     CREATE TABLE IF NOT EXISTS notes (player TEXT PRIMARY KEY, note TEXT NOT NULL);
     ''')
