@@ -111,7 +111,7 @@ function diagnostic(state,history){
  const players=state.players||[], aliases=new Map();
  players.forEach((p,i)=>{aliases.set('p:'+p.profileId,'Player '+(i+1));aliases.set('n:'+p.name,'Player '+(i+1));});
  const safeEvents=(history.events||[]).map(e=>({type:e.type,actor:e.actor?(aliases.get(e.actor)||'Unknown player'):undefined,amount:e.amount??undefined,street:e.street}));
- return {schema:1,extension:'15.0.1',variant:state.variant||'unknown',street:state.street,boardCount:state.board?.length||0,holeCount:state.hole?.length||0,pot:state.pot,call:state.call,
+ return {schema:1,extension:'15.0.2',variant:state.variant||'unknown',street:state.street,boardCount:state.board?.length||0,holeCount:state.hole?.length||0,pot:state.pot,call:state.call,
    players:players.map((p,i)=>({name:'Player '+(i+1),seat:p.seat,stack:p.stack,bet:p.bet,folded:p.folded,isMe:p.isMe,dealer:p.dealer})),
    history:{status:history.status,reason:history.reason,scenario:history.scenario,raises:history.raises,events:safeEvents},
    privacy:'No names, PokerNow IDs, table URL, pairing code, notes, raw log or card values.'};

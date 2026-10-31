@@ -37,7 +37,7 @@
   let scale = Math.max(.8, Math.min(1.2, Number(settings.scale) || 1));
   let compact = settings.compact !== false;
   let activeView = settings.activeView==='players'?'players':'hand';
-  const overlayVersion='15.0.1'; // Version of this loaded script, even after an extension update.
+  const overlayVersion='15.0.2'; // Version of this loaded script, even after an extension update.
   const handCollector=globalThis.PokerNowHistory.collector();
   const tableRecorder=globalThis.PokerNowTableCapture.recorder(Date.now().toString(36)+'-'+Math.random().toString(36).slice(2));
   let captureResult=null;
